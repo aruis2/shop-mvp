@@ -161,13 +161,15 @@ async fn auth_login(s: &AuthState, body: &str, referer: Option<&str>) -> Result<
 fn auth_response(resp: Result<(rust_auth::LoginResponse, String), String>, bp: &str) -> Response {
     match resp {
         Ok((r, redirect)) => {
-            let dest = if redirect.is_empty() || redirect == format!("{bp}/") {
-                debug_log!(target: "auth::response", "redirect gol, merg la /");
+            let raw_dest = if redirect.is_empty() || redirect == format!("{bp}/") {
                 format!("{bp}/")
             } else {
-                debug_log!(target: "auth::response", "redirect: {}", redirect);
                 redirect
             };
+            // 🔒 OutputFactory: validează URL-ul redirect
+            let dest = OutputFactory::safe_redirect_url(&raw_dest, "/")
+                .unwrap_or_else(|| format!("{bp}/"));
+            debug_log!(target: "auth::response", "redirect: {} -> {}", raw_dest, dest);
             let cookie = crate::cookie::set_cookie("token", &r.token, 86400 * 7);
             let mut resp = (StatusCode::FOUND, [("Location", dest.as_str())]).into_response();
             resp.headers_mut().insert(

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use crate::state::CartState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err_json;
+use crate::types::output::OutputFactory;
 use crate::debug_warn;
 
 fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
@@ -28,9 +29,12 @@ fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<
     if let Some(msg) = error {
         debug_warn!(target: "cart", "redirect_back cu eroare: {} -> {}", msg, base);
     }
+    // 🔒 OutputFactory: validează URL-ul redirect (previne open redirect)
+    let safe_base = OutputFactory::safe_redirect_url(&base, "/")
+        .unwrap_or_else(|| fallback.to_string());
     let dest = match error {
-        Some(msg) => format!("{}?error={}", base, msg.replace(' ', "%20")),
-        None => base.to_string(),
+        Some(msg) => format!("{}?error={}", safe_base, msg.replace(' ', "%20")),
+        None => safe_base,
     };
     (StatusCode::FOUND, [("Location", dest)]).into_response()
 }

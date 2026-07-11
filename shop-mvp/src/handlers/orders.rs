@@ -12,6 +12,7 @@ use serde::Deserialize;
 use crate::state::OrderState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::{render_or_err_json};
+use crate::types::output::OutputFactory;
 use crate::{debug_warn, debug_log};
 
 fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
@@ -87,18 +88,26 @@ pub struct CheckoutForm {
 }
 
 fn err_htmx(msg: &str) -> Response {
-    Html(format!("<div class=\"text-red-600\">❌ {msg}</div>")).into_response()
+    // 🔒 OutputFactory: sanitizează mesajul de eroare
+    let safe = OutputFactory::text_html(msg);
+    Html(format!("<div class=\"text-red-600\">❌ {safe}</div>")).into_response()
 }
 
 fn error_redirect(dest: &str, msg: &str) -> Response {
     debug_warn!(target: "orders", "error_redirect: {} -> {}", msg, dest);
-    let msg = msg.replace(' ', "%20");
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", dest, msg))]).into_response()
+    // 🔒 OutputFactory: validează URL + sanitizează mesajul
+    let safe_dest = OutputFactory::safe_redirect_url(dest, "/")
+        .unwrap_or_else(|| "/".to_string());
+    let safe_msg = OutputFactory::safe_error_msg(msg);
+    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, safe_msg))]).into_response()
 }
 
 fn redirect_to_login(base_path: &str) -> Response {
+    // 🔒 OutputFactory: validează URL-ul redirect
     let dest = format!("{}/login?redirect={}/orders", base_path, base_path);
-    (StatusCode::FOUND, [("Location", dest)]).into_response()
+    let safe_dest = OutputFactory::safe_redirect_url(&dest, "/")
+        .unwrap_or_else(|| "/login".to_string());
+    (StatusCode::FOUND, [("Location", safe_dest)]).into_response()
 }
 pub async fn checkout_handler(
     State(s): State<OrderState>,

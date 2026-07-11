@@ -276,7 +276,10 @@ fn redirect_to_admin(headers: &axum::http::HeaderMap, bp: &str) -> Response {
     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("");
     let dest = referer.split('?').next().unwrap_or("").to_string();
     let dest = if dest.is_empty() { format!("{}/admin", bp) } else { dest };
-    (StatusCode::FOUND, [("Location", dest)]).into_response()
+    // 🔒 OutputFactory: validează URL-ul redirect
+    let safe_dest = OutputFactory::safe_redirect_url(&dest, "/")
+        .unwrap_or_else(|| format!("{}/admin", bp));
+    (StatusCode::FOUND, [("Location", safe_dest)]).into_response()
 }
 
 pub async fn admin_product_delete(
@@ -350,13 +353,14 @@ pub struct AdminStatusForm {
 
 fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Response {
     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("");
-    // Elimină ?error=... din referer ca să nu se acumuleze
     let base = referer.split('?').next().unwrap_or("");
     let dest = if base.is_empty() { format!("{}/admin/orders", bp) } else { base.to_string() };
-    // 🔒 OutputFactory: sanitizează mesajul de eroare
+    // 🔒 OutputFactory: validează URL + sanitizează mesajul
+    let safe_dest = OutputFactory::safe_redirect_url(&dest, "/")
+        .unwrap_or_else(|| format!("{}/admin/orders", bp));
     let safe_msg = OutputFactory::safe_error_msg(msg);
     debug_warn!(target: "admin", "error_redirect: {} -> {} (referer: {})", msg, dest, referer);
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", dest, urlencoding(&safe_msg)))]).into_response()
+    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, urlencoding(&safe_msg)))]).into_response()
 }
 
 fn urlencoding(s: &str) -> String {
