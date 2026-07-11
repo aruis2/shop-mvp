@@ -216,6 +216,8 @@ req POST "/signup" 302 "3c. Signup cont nou → 302" \
 req GET "/me" 200 "3d. /me după signup → 200" "" "$JAR_NEW"
 ME_JSON=$(req_body GET "/me" "$JAR_NEW")
 check_contains "$ME_JSON" "$NEW_EMAIL" "3e. /me → email corect"
+# 🧑 Ion: numele trebuie salvat la signup
+check_contains "$ME_JSON" '"name":"DeepSeek"' "3ea. /me → numele 'DeepSeek' salvat"
 
 # Logout + re-login cu contul nou
 req GET "/logout" 302 "3f. Logout → 302" "" "$JAR_NEW"

@@ -125,10 +125,17 @@ pub struct LogoutQuery {
 }
 
 async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
-    // 🏭 InputFactory: validează email + password
-    let (email_str, password) = parse_body_and_validate(body, |fields| {
+    // 🏭 InputFactory: validează email + password + name
+    let (email_str, password, user_name) = parse_body_and_validate(body, |fields| {
         let email = InputFactory::parse_email(get_field(fields, "email")?)?;
         let password = get_field(fields, "password")?;
+        // 🏭 InputFactory: numele e opțional, dacă e prezent trece prin InputFactory
+        let name = match get_field(fields, "name") {
+            Ok(s) if !s.trim().is_empty() => {
+                Some(InputFactory::parse_name(s)?.as_str().to_string())
+            }
+            _ => None,
+        };
         // 🔒 InputFactory: validare parolă (OWASP ASVS V2.1)
         if password.len() < 8 {
             return Err(InputError::PasswordTooShort);
@@ -145,13 +152,13 @@ async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result
         if !password.chars().any(|c| c.is_ascii_digit()) {
             return Err(InputError::PasswordNoDigit);
         }
-        Ok((email.as_str().to_string(), password.to_string()))
+        Ok((email.as_str().to_string(), password.to_string(), name))
     })?;
 
     let req = rust_auth::CreateUserRequest {
         email: email_str,
         password,
-        name: None,
+        name: user_name,
     };
     let redirect = extract_redirect(body);
     let redirect = if redirect.is_empty() {
