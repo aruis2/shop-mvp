@@ -127,7 +127,7 @@ pub async fn admin_products_page(
         "total_pages": total_pages,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_products.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "admin/admin_products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_new_page(
@@ -145,7 +145,7 @@ pub async fn admin_product_new_page(
         "product": serde_json::Value::Null,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_create(
@@ -233,7 +233,7 @@ pub async fn admin_product_edit_page(
         },
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_update(
@@ -363,7 +363,7 @@ pub async fn admin_orders_page(
         "total_pages": total_pages,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_orders.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "admin/admin_orders.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Response {
@@ -498,5 +498,5 @@ pub async fn admin_logs(
         "lines": lines,
         "total": crate::get_query_count(),
     });
-    render_or_err_json(&s.renderer, "admin/admin_logs.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "admin/admin_logs.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

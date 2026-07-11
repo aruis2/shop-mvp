@@ -86,7 +86,7 @@ impl RenderService {
 
     /// Redă un template cu un context Tera (clasic).
     /// `base_path` e injectat automat în context.
-    /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
+    /// `partial=true` → doar conținutul; `false` → pagină completă cu layout.
     ///
     /// 🔒 NOTĂ: Acest metodă NU sanitarizează contextul automat.
     ///     Pentru sanitizare automată, folosește `render_json()`.
@@ -99,7 +99,7 @@ impl RenderService {
     /// Redă un template cu date JSON, cu sanitizare automată OutputFactory.
     /// 🔒 Toate string-urile din `data` trec prin html_encode înainte de Tera.
     /// `base_path` e injectat automat în context.
-    /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
+    /// `partial=true` → doar conținutul; `false` → pagină completă cu layout.
     pub fn render_json(&self, template: &str, data: &serde_json::Value, base_path: &str, partial: bool) -> Result<Html<String>, String> {
         // 🔒 OutputFactory: walk recursiv, html_encode pe toate string-urile
         let sanitized = OutputFactory::sanitize_context(data);

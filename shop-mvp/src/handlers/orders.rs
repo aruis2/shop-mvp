@@ -74,7 +74,7 @@ pub async fn checkout_page(
         "total_lei": format!("{:.2}", cart.total_bani as f64 / 100.0),
         "item_count": cart.item_count,
     });
-    match render_or_err_json(&s.renderer, "orders/checkout.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
+    match render_or_err_json(&s.renderer, "orders/checkout.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
         Ok(html) => html.into_response(),
         Err((code, msg)) => (code, msg).into_response(),
     }
@@ -88,12 +88,6 @@ struct CheckoutParsed {
     shipping_address: String,
     shipping_phone: String,
     notes: Option<String>,
-}
-
-fn err_htmx(msg: &str) -> Response {
-    // 🔒 OutputFactory: sanitizează mesajul de eroare
-    let safe = OutputFactory::text_html(msg);
-    Html(format!("<div class=\"text-red-600\">❌ {safe}</div>")).into_response()
 }
 
 fn error_redirect(dest: &str, msg: &str) -> Response {
@@ -119,7 +113,6 @@ pub async fn checkout_handler(
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
-    let is_htmx = headers.get("hx-request").is_some();
     let token_str = extract_token(&headers).unwrap_or("");
 
     // 🏭 InputFactory: parsează și validează TOT inputul
@@ -146,10 +139,10 @@ pub async fn checkout_handler(
         Ok(c) => c,
         Err(InputError::MissingField(f)) => {
             let msg = format!("Cîmpul '{f}' lipsește");
-            return if is_htmx { err_htmx(&msg) } else { error_redirect(&format!("{}/checkout", bp), &msg) };
+            return error_redirect(&format!("{}/checkout", bp), &msg);
         },
         Err(e) => {
-            return if is_htmx { err_htmx(&e.to_string()) } else { error_redirect(&format!("{}/checkout", bp), &e.to_string()) };
+            return error_redirect(&format!("{}/checkout", bp), &e.to_string());
         },
     };
 
@@ -159,14 +152,14 @@ pub async fn checkout_handler(
         Ok(c) => c,
         Err(e) => {
             tracing::error!(target: "orders::checkout", "cart fetch eșuat: {}", e);
-            return if is_htmx { err_htmx(&e.to_string()) } else { error_redirect(&format!("{}/checkout", bp), &e.to_string()) };
+            return error_redirect(&format!("{}/checkout", bp), &e.to_string());
         },
     };
 
     // 🏭 LogicFactory: verifică coș ne-gol
     if cart.items.is_empty() {
         debug_warn!(target: "orders::checkout", "checkout cu coșul gol");
-        return if is_htmx { err_htmx("Coșul e gol") } else { error_redirect(&format!("{}/cart", bp), "Coșul e gol") };
+        return error_redirect(&format!("{}/cart", bp), "Coșul e gol");
     }
 
     let cart_items: Vec<(String, String, i64, i32)> = cart.items.iter()
@@ -186,7 +179,7 @@ pub async fn checkout_handler(
         Ok(o) => o,
         Err(e) => {
             tracing::error!(target: "orders::checkout", "place_order eșuat: {}", e);
-            return if is_htmx { err_htmx(&e.to_string()) } else { error_redirect(&format!("{}/checkout", bp), &e.to_string()) };
+            return error_redirect(&format!("{}/checkout", bp), &e.to_string());
         },
     };
 
@@ -211,11 +204,7 @@ pub async fn checkout_handler(
             tracing::error!(target: "orders::stripe", "Stripe checkout eșuat: {}", e);
             let tk = if token_str.is_empty() { String::new() } else { format!("?token={}", token_str) };
             let dest = format!("{}/orders{}", bp, tk);
-            if is_htmx {
-                Html(format!("<script>window.location.href='{dest}';</script>")).into_response()
-            } else {
-                (StatusCode::FOUND, [("Location", dest)]).into_response()
-            }
+            (StatusCode::FOUND, [("Location", dest)]).into_response()
         }
     }
 }
@@ -226,12 +215,11 @@ pub async fn order_pay(
     headers: axum::http::HeaderMap,
     Path(order_id): Path<uuid::Uuid>,
 ) -> Response {
-    let is_htmx = headers.get("hx-request").is_some();
     let token = match extract_token(&headers) {
         Some(t) => t.to_string(),
         None => {
         debug_warn!(target: "orders::pay", "order_pay: neautentificat");
-        return if is_htmx { err_htmx("Trebuie să fii autentificat") } else { error_redirect(&format!("{}/login", bp), "Trebuie să fii autentificat") };
+        return error_redirect(&format!("{}/login", bp), "Trebuie să fii autentificat");
     },
     };
 
@@ -239,7 +227,7 @@ pub async fn order_pay(
         Ok(u) => u,
         Err(_) => {
             debug_warn!(target: "orders::pay", "order_pay: token invalid");
-            return if is_htmx { err_htmx("Token invalid") } else { error_redirect(&format!("{}/login", bp), "Token invalid") };
+            return error_redirect(&format!("{}/login", bp), "Token invalid");
         },
     };
 
@@ -247,21 +235,21 @@ pub async fn order_pay(
         Ok(Some(o)) => o,
         Ok(None) => {
             debug_warn!(target: "orders::pay", "order_pay: comanda {} nu există", order_id);
-            return if is_htmx { err_htmx("Comanda nu există") } else { error_redirect(&format!("{}/orders", bp), "Comanda nu există") };
+            return error_redirect(&format!("{}/orders", bp), "Comanda nu există");
         },
         Err(e) => {
             tracing::error!(target: "orders::pay", "order_pay: DB error la comanda {}: {}", order_id, e);
-            return if is_htmx { err_htmx(&e.to_string()) } else { error_redirect(&format!("{}/orders", bp), &e.to_string()) };
+            return error_redirect(&format!("{}/orders", bp), &e.to_string());
         },
     };
 
     if let Err(_) = LogicFactory::verify_ownership(&user.id, &order.user_id.unwrap_or_default(), "order") {
         debug_warn!(target: "orders::pay", "order_pay: IDOR încercat comanda {} de user {}", order_id, user.id);
-        return if is_htmx { err_htmx("Nu e comanda ta") } else { error_redirect(&format!("{}/orders", bp), "Nu e comanda ta") };
+        return error_redirect(&format!("{}/orders", bp), "Nu e comanda ta");
     }
     if let Err(_) = LogicFactory::verify_not_paid(&order.payment_status) {
         debug_log!(target: "orders::pay", "order_pay: comanda {} e deja plătită", order_id);
-        return if is_htmx { err_htmx("Deja plătită") } else { error_redirect(&format!("{}/orders", bp), "Deja plătită") };
+        return error_redirect(&format!("{}/orders", bp), "Deja plătită");
     }
 
     let checkout_req = rust_payment::CreateCheckoutRequest {
@@ -274,12 +262,12 @@ pub async fn order_pay(
 
     match s.payment.create_checkout(checkout_req).await {
         Ok(session) => {
-            // 302 redirect la Stripe — funcționează și pentru form POST, nu doar HTMX
+            // 302 redirect la Stripe — funcționează și pentru form POST
             (StatusCode::FOUND, [("Location", session.checkout_url)]).into_response()
         }
         Err(e) => {
             tracing::error!(target: "orders::pay", "Stripe checkout eșuat pentru comanda {}: {}", order_id, e);
-            if is_htmx { err_htmx(&e.to_string()) } else { error_redirect(&format!("{}/orders", bp), &e.to_string()) }
+            error_redirect(&format!("{}/orders", bp), &e.to_string())
         }
     }
 }
@@ -335,7 +323,7 @@ pub async fn orders_page(
         "total_pages": total_pages,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    match render_or_err_json(&s.renderer, "orders/orders.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
+    match render_or_err_json(&s.renderer, "orders/orders.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
         Ok(html) => html.into_response(),
         Err((code, msg)) => (code, msg).into_response(),
     }
@@ -363,7 +351,7 @@ pub async fn success_page(
         }
     }
     let data = serde_json::json!({"title": "Comandă reușită! — Shop MVP"});
-    render_or_err_json(&s.renderer, "orders/success.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "orders/success.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 // ============================================================================

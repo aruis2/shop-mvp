@@ -25,13 +25,12 @@ pub async fn render_or_err(
     template: &str,
     ctx: &Context,
     base_path: &str,
-    is_htmx: bool,
     headers: &HeaderMap,
     auth_repo: &dyn rust_auth::AuthRepo,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let mut ctx = ctx.clone();
     auth::inject_user_ctx(&mut ctx, headers, auth_repo).await;
-    renderer.render(template, &ctx, base_path, is_htmx)
+    renderer.render(template, &ctx, base_path, false)
         .map_err(|e| {
             tracing::error!(target: "template", "Eșec render '{}': {}", template, e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)
@@ -45,13 +44,12 @@ pub async fn render_or_err_json(
     template: &str,
     data: &serde_json::Value,
     base_path: &str,
-    is_htmx: bool,
     headers: &HeaderMap,
     auth_repo: &dyn rust_auth::AuthRepo,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let mut data = data.clone();
     auth::inject_user_ctx_json(&mut data, headers, auth_repo).await;
-    renderer.render_json(template, &data, base_path, is_htmx)
+    renderer.render_json(template, &data, base_path, false)
         .map_err(|e| {
             tracing::error!(target: "template", "Eșec render '{}': {}", template, e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)
@@ -93,7 +91,7 @@ pub async fn home_page(
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let mut data = serde_json::json!({"title": "Acasă — Shop MVP"});
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "index.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "index.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn search_page(
@@ -120,7 +118,7 @@ pub async fn search_page(
             "total_pages": 1,
             "query": "",
         });
-        return render_or_err_json(&s.renderer, "products/search.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await;
+        return render_or_err_json(&s.renderer, "products/search.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await;
     }
     let page = QueryValidator::page(q.page, 1);
     let (products, total) = s.products.search_products(&query_str, page, PRODUCTS_PER_PAGE)
@@ -145,7 +143,7 @@ pub async fn search_page(
         "total_pages": total_pages,
         "query": query_str,
     });
-    render_or_err_json(&s.renderer, "products/search.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "products/search.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn products_page(
@@ -188,7 +186,7 @@ pub async fn products_page(
         "page": page,
         "total_pages": total_pages,
     });
-    render_or_err_json(&s.renderer, "products/products.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "products/products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn product_detail_page(
@@ -217,5 +215,5 @@ pub async fn product_detail_page(
             "specs": specs_arr, "stock_count": product.stock_count,
         },
     });
-    render_or_err_json(&s.renderer, "products/product_detail.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "products/product_detail.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

@@ -386,8 +386,7 @@ async fn session_timeout(
 // 🔒 ASVS L2: CSRF Protection — verificare Origin header
 // ============================================================================
 // Pentru request-uri POST, verificăm că header-ul `Origin` sau `Referer`
-// corespunde site-ului nostru. HTMX adaugă automat `HX-Request` header,
-// dar pentru API clients e necesară verificarea explicită.
+// corespunde site-ului nostru.
 //
 // Aceasta e o mitigare CSRF simplă și eficientă — nu necesită token-uri.
 
@@ -403,23 +402,19 @@ async fn csrf_middleware(
         || method == axum::http::Method::PATCH;
 
     if is_post {
-        // HTMX adaugă HX-Request → skip CSRF check (protecție built-in)
-        let is_htmx = req.headers().get("hx-request").is_some();
-        if !is_htmx {
-            let origin = req.headers().get("origin")
-                .and_then(|v| v.to_str().ok());
-            let referer = req.headers().get("referer")
-                .and_then(|v| v.to_str().ok());
-            let site_url = std::env::var("SITE_URL").unwrap_or_default();
+        let origin = req.headers().get("origin")
+            .and_then(|v| v.to_str().ok());
+        let referer = req.headers().get("referer")
+            .and_then(|v| v.to_str().ok());
+        let site_url = std::env::var("SITE_URL").unwrap_or_default();
 
-            let origin_ok = origin.map_or(false, |o| o.starts_with(&site_url) || o.contains("://localhost"));
-            let referer_ok = referer.map_or(false, |r| r.starts_with(&site_url) || r.contains("://localhost"));
+        let origin_ok = origin.map_or(false, |o| o.starts_with(&site_url) || o.contains("://localhost"));
+        let referer_ok = referer.map_or(false, |r| r.starts_with(&site_url) || r.contains("://localhost"));
 
-            if !origin_ok && !referer_ok {
-                tracing::warn!(target: "csrf", "CSRF respins: method={} origin={:?} referer={:?}",
-                    method, origin, referer);
-                return (axum::http::StatusCode::FORBIDDEN, "CSRF check failed").into_response();
-            }
+        if !origin_ok && !referer_ok {
+            tracing::warn!(target: "csrf", "CSRF respins: method={} origin={:?} referer={:?}",
+                method, origin, referer);
+            return (axum::http::StatusCode::FORBIDDEN, "CSRF check failed").into_response();
         }
     }
 

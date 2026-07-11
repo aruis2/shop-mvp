@@ -70,7 +70,7 @@ pub async fn login_page(
     });
     if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "auth/login.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "auth/login.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn signup_page(
@@ -98,10 +98,10 @@ pub async fn signup_page(
     });
     if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "auth/signup.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "auth/signup.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-/// Parsează body-ul ca JSON sau form-urlencoded (HTMX trimite form data)
+/// Parsează body-ul ca JSON sau form-urlencoded
 /// și validează prin InputFactory
 fn parse_body_and_validate<T>(
     body: &str,
@@ -356,15 +356,13 @@ pub async fn logout_handler(
     headers: axum::http::HeaderMap,
     Query(q): Query<LogoutQuery>,
 ) -> Response {
-    let is_htmx = headers.get("hx-request").is_some();
     let cookie = crate::cookie::remove_cookie("token");
     
-    // Determină URL-ul curent: ?redirect= → hx-current-url → referer → /
+    // Determină URL-ul curent: ?redirect= → referer → /
     let redirect_val = q.redirect.clone();
     let current_url = redirect_val
         .or_else(|| {
-            headers.get("hx-current-url")
-                .or_else(|| headers.get("referer"))
+            headers.get("referer")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string())
         });
@@ -379,18 +377,7 @@ pub async fn logout_handler(
     
     debug_log!(target: "auth::logout", "logout: redirect={:?} -> path={} safe={}", q.redirect, current_path, safe_path);
     
-    let mut resp = if is_htmx {
-        let mut r = (StatusCode::OK, Html(String::new())).into_response();
-        let header_val = OutputFactory::safe_header_value(&safe_path);
-        r.headers_mut().insert(
-            axum::http::HeaderName::from_static("hx-redirect"),
-            axum::http::HeaderValue::from_str(&header_val).unwrap(),
-        );
-        r
-    } else {
-        let r = (StatusCode::FOUND, [("Location", safe_path.as_str())]).into_response();
-        r
-    };
+    let mut resp = (StatusCode::FOUND, [("Location", safe_path.as_str())]).into_response();
     resp.headers_mut().insert(
         axum::http::header::SET_COOKIE,
         axum::http::HeaderValue::from_str(&cookie).unwrap(),
@@ -553,7 +540,7 @@ pub async fn privacy_policy_page(
     headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let data = serde_json::json!({"title": "Politică de confidențialitate — Shop MVP"});
-    render_or_err_json(&s.renderer, "auth/privacy.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "auth/privacy.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// GET /security — Politica de securitate (PCI DSS)
@@ -563,5 +550,5 @@ pub async fn security_policy_page(
     headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let data = serde_json::json!({"title": "Securitate — Shop MVP"});
-    render_or_err_json(&s.renderer, "auth/security.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "auth/security.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

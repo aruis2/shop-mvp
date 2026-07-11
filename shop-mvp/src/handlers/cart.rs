@@ -98,7 +98,7 @@ pub async fn cart_page(
         "session_id": session_id,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "cart/cart.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_or_err_json(&s.renderer, "cart/cart.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 // ─── Add to cart ────────────────────────────────────────
