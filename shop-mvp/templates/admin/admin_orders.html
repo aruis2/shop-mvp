@@ -1,0 +1,90 @@
+<h1 class="text-3xl font-bold mb-6">📦 Admin — Comenzi</h1>
+<p class="text-gray-500 mb-4">{{ total }} comenzi</p>
+
+{% if error %}
+<div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+    ❌ {{ error }}
+    <a href="{{ base_path }}/admin/orders" class="ml-4 text-red-800 underline">← înapoi</a>
+</div>
+{% endif %}
+
+<div class="mb-4">
+    <a href="{{ base_path }}/admin" class="text-blue-600 hover:underline">← Produse</a>
+</div>
+
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="w-full">
+        <tr class="border-b bg-gray-50 text-left">
+            <th class="p-3">ID</th>
+            <th class="p-3">Client</th>
+            <th class="p-3">Total</th>
+            <th class="p-3">Status</th>
+            <th class="p-3">Plată</th>
+            <th class="p-3">Data</th>
+            <th class="p-3">Acțiuni</th>
+        </tr>
+        {% for order in orders %}
+        <tr class="border-b hover:bg-gray-50">
+            <td class="p-3 text-sm font-mono">#{{ order.id | truncate(length=8) }}</td>
+            <td class="p-3">
+                <div class="font-medium">{{ order.shipping_name }}</div>
+                <div class="text-xs text-gray-500">{{ order.shipping_address }}</div>
+                <div class="text-xs text-gray-500">{{ order.shipping_phone }}</div>
+            </td>
+            <td class="p-3 font-semibold">{{ order.total_lei }} Lei</td>
+            <td class="p-3">
+                <span class="px-2 py-1 rounded text-sm 
+                    {% if order.status == 'pending' %}bg-yellow-100 text-yellow-800
+                    {% elif order.status == 'confirmed' %}bg-blue-100 text-blue-800
+                    {% elif order.status == 'shipped' %}bg-purple-100 text-purple-800
+                    {% elif order.status == 'delivered' %}bg-green-100 text-green-800
+                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {{ order.status }}
+                </span>
+            </td>
+            <td class="p-3">
+                <span class="px-2 py-1 rounded text-sm
+                    {% if order.payment_status == 'paid' %}bg-green-100 text-green-800
+                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {{ order.payment_status }}
+                </span>
+            </td>
+            <td class="p-3 text-sm text-gray-500">{{ order.created_at }}</td>
+            <td class="p-3">
+                <form method="POST" action="{{ base_path }}/admin/order/{{ order.id }}/status" class="flex gap-1 items-center">
+                    <select name="status" class="border rounded text-sm p-1">
+                        <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>🟡 În așteptare</option>
+                        <option value="confirmed" {% if order.status == 'confirmed' %}selected{% endif %}>🔵 Confirmată</option>
+                        <option value="shipped" {% if order.status == 'shipped' %}selected{% endif %}>🟣 Expediată</option>
+                        <option value="delivered" {% if order.status == 'delivered' %}selected{% endif %}>🟢 Livrată</option>
+                        <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>❌ Anulată</option>
+                    </select>
+                    <button type="submit" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700">Salvează</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="flex justify-center gap-2 mt-6">
+    {% if page > 1 %}
+        <a href="{{ base_path }}/admin/orders?page=1" class="px-3 py-1 border rounded hover:bg-gray-100">&laquo;</a>
+        <a href="{{ base_path }}/admin/orders?page={{ page - 1 }}" class="px-3 py-1 border rounded hover:bg-gray-100">&lsaquo;</a>
+    {% endif %}
+    {% for p in range(start=1, end=total_pages + 1) %}
+        {% if p >= page - 2 and p <= page + 2 %}
+            {% if p == page %}
+                <span class="px-3 py-1 border rounded bg-blue-600 text-white">{{ p }}</span>
+            {% else %}
+                <a href="{{ base_path }}/admin/orders?page={{ p }}" class="px-3 py-1 border rounded hover:bg-gray-100">{{ p }}</a>
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+        <a href="{{ base_path }}/admin/orders?page={{ page + 1 }}" class="px-3 py-1 border rounded hover:bg-gray-100">&rsaquo;</a>
+        <a href="{{ base_path }}/admin/orders?page={{ total_pages }}" class="px-3 py-1 border rounded hover:bg-gray-100">&raquo;</a>
+    {% endif %}
+</div>
+{% endif %}

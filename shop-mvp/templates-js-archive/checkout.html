@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Checkout — Shop MVP{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">📝 Finalizare comandă</h1>
+<p class="text-gray-500 mb-6">{{ item_count }} produse • Total: <strong>{{ total_lei }} Lei</strong></p>
+
+<div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
+    <form id="checkoutForm" class="space-y-4">
+        <input type="hidden" id="session_id" value="{{ session_id }}">
+        <div>
+            <label class="block text-sm font-medium mb-1">Nume complet *</label>
+            <input type="text" id="shipping_name" class="w-full border rounded px-3 py-2" required>
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Adresă livrare *</label>
+            <textarea id="shipping_address" class="w-full border rounded px-3 py-2" rows="2" required></textarea>
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Telefon *</label>
+            <input type="tel" id="shipping_phone" class="w-full border rounded px-3 py-2" required>
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Notițe (opțional)</label>
+            <textarea id="notes" class="w-full border rounded px-3 py-2" rows="2"></textarea>
+        </div>
+        <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg text-lg hover:bg-green-700">
+            🔒 Plasează comanda ({{ total_lei }} Lei)
+        </button>
+    </form>
+</div>
+
+<script>
+document.getElementById('checkoutForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await fetch(BASE_PATH + '/checkout', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')},
+        body: JSON.stringify({
+            session_id: document.getElementById('session_id').value,
+            shipping_name: document.getElementById('shipping_name').value,
+            shipping_address: document.getElementById('shipping_address').value,
+            shipping_phone: document.getElementById('shipping_phone').value,
+            notes: document.getElementById('notes').value || null
+        })
+    });
+    if (res.ok) {
+        const data = await res.json();
+        if (data.checkout_url) {
+            window.location.href = data.checkout_url;
+        } else {
+            alert('Comandă plasată! ID: ' + data.order_id);
+            window.location.href = BASE_PATH + '/orders?token=' + encodeURIComponent(localStorage.getItem('token') || '');
+        }
+    } else {
+        const text = await res.text();
+        alert('Eroare: ' + text);
+    }
+};
+</script>
+{% endblock %}

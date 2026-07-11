@@ -1,0 +1,33 @@
+<h1 class="text-3xl font-bold mb-6">📝 Finalizare comandă</h1>
+<p class="text-gray-500 mb-6">{{ item_count }} produse • Total: <strong>{{ total_lei }} Lei</strong></p>
+
+<div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
+    <div id="checkout-form">
+        <form method="POST" action="{{ base_path }}/checkout" class="space-y-4">
+            <input type="hidden" name="session_id" value="{{ session_id }}">
+            <div>
+                <label class="block text-sm font-medium mb-1">Email *</label>
+                <input type="email" name="guest_email" class="w-full border rounded px-3 py-2" required placeholder="pentru confirmare comandă">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Nume complet *</label>
+                <input type="text" name="shipping_name" class="w-full border rounded px-3 py-2" required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Adresă livrare *</label>
+                <textarea name="shipping_address" class="w-full border rounded px-3 py-2" rows="2" required></textarea>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Telefon *</label>
+                <input type="tel" name="shipping_phone" class="w-full border rounded px-3 py-2" required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Notițe (opțional)</label>
+                <textarea name="notes" class="w-full border rounded px-3 py-2" rows="2"></textarea>
+            </div>
+            <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg text-lg hover:bg-green-700">
+                🔒 Plasează comanda ({{ total_lei }} Lei)
+            </button>
+        </form>
+    </div>
+</div>

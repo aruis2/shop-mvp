@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Loguri DB — Admin{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-4">📋 Loguri DB</h1>
+<p class="mb-4 text-gray-600">Total query-uri de la pornire: <strong>{{ total }}</strong></p>
+<div class="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-sm overflow-x-auto max-h-[70vh] overflow-y-auto">
+{% for line in lines -%}
+<div>{{ line }}</div>
+{% endfor -%}
+{% if lines | length == 0 %}
+<div class="text-gray-500">Niciun query înregistrat.</div>
+{% endif %}
+</div>
+<a href="{{ base_path }}/admin" class="inline-block mt-4 text-blue-600 hover:underline">← Înapoi la admin</a>
+{% endblock %}

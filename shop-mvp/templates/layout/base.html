@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Shop MVP{% endblock title %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ base_path }}/static/style.css">
+    {% block head %}{% endblock head %}
+</head>
+<body class="bg-gray-50">
+    <!-- WCAG: skip-to-content link pentru keyboard navigation -->
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:px-4 focus:py-2 focus:border focus:border-blue-600 focus:text-blue-600 focus:rounded">
+        Sari la conținut
+    </a>
+
+    <header role="banner">
+        <nav class="bg-white shadow-sm border-b" role="navigation" aria-label="Navigare principală">
+            <div class="max-w-7xl mx-auto px-4 py-3 flex gap-6 items-center">
+                <a href=\"{{ base_path }}/\" class=\"font-bold text-xl\" aria-label=\"Acasă\">🛒 Shop</a>
+                <a href="{{ base_path }}/products" class="text-gray-600 hover:text-black focus:outline-2 focus:outline-blue-500 rounded">Produse</a>
+                <a href="{{ base_path }}/cart" class="text-gray-600 hover:text-black focus:outline-2 focus:outline-blue-500 rounded">Coș</a>
+                <form action="{{ base_path }}/search" method="GET" class="flex-1 max-w-xs ml-auto" role="search" aria-label="Caută produse">
+                    <label for="search-input" class="sr-only">Caută produse</label>
+                    <input id="search-input" type="text" name="q" placeholder="Caută produse..." class="w-full border rounded px-3 py-1 text-sm focus:outline-2 focus:outline-blue-500">
+                </form>
+                <span id="userInfo" class="ml-2">
+                {% if user_email %}
+                    <span class="text-gray-600 mr-2">{{ user_email }}</span>
+                    <a href="{{ base_path }}/logout" class="text-red-600 hover:text-red-800 focus:outline-2 focus:outline-blue-500 rounded" aria-label="Deconectare">Logout</a>
+                    <a href="{{ base_path }}/orders" class="text-gray-600 hover:text-black ml-4 focus:outline-2 focus:outline-blue-500 rounded" aria-label="Comenzile mele">Comenzi</a>
+                    {% if is_admin %}
+                    <a href="{{ base_path }}/admin" class="text-gray-600 hover:text-black focus:outline-2 focus:outline-blue-500 rounded" aria-label="Panou administrare">Admin</a>
+                    {% endif %}
+                {% else %}
+                    <a href="{{ base_path }}/login" class="text-blue-600 hover:text-blue-800 focus:outline-2 focus:outline-blue-500 rounded" aria-label="Autentificare">Autentificare</a>
+                {% endif %}
+                </span>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content" role="main" class="max-w-7xl mx-auto px-4 py-8">
+        {% block content %}{% endblock content %}
+    </main>
+
+    <footer role="contentinfo" class="text-center text-gray-400 text-sm py-8">
+        <p>&copy; 2026 Shop MVP. Toate drepturile rezervate.</p>
+        <nav aria-label="Link-uri utile" class="mt-2 space-x-4">
+            <a href="{{ base_path }}/privacy" class="text-gray-400 hover:text-gray-600 focus:outline-2 focus:outline-blue-500 rounded">Confidențialitate</a>
+            <a href="{{ base_path }}/security" class="text-gray-400 hover:text-gray-600 focus:outline-2 focus:outline-blue-500 rounded">Securitate</a>
+        </nav>
+    </footer>
+</body>
+</html>

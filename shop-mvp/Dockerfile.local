@@ -1,0 +1,8 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates libssl3 libgcc-s1 zlib1g libzstd1 && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY shop-mvp-bin /app/shop-mvp
+COPY templates /app/templates
+COPY static /app/static
+ENV PORT=8080
+CMD ["/app/shop-mvp"]

@@ -1,0 +1,51 @@
+<h1 class="text-3xl font-bold mb-6">{% if product %}✏️ Editează{% else %}➕ Adaugă{% endif %} produs</h1>
+
+{% if error %}
+<div class="mb-4 max-w-lg mx-auto bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+    ❌ {{ error }}
+    {% if product %}
+    <a href="{{ base_path }}/admin/product/{{ product.slug }}/edit" class="ml-4 text-red-800 underline">← înapoi</a>
+    {% else %}
+    <a href="{{ base_path }}/admin/product/new" class="ml-4 text-red-800 underline">← înapoi</a>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
+    <div id="product-form">
+        {% set form_action = base_path ~ "/admin/product/new" %}
+        {% if product %}{% set_global form_action = base_path ~ "/admin/product/" ~ product.slug ~ "/edit" %}{% endif %}
+        <form method="POST" action="{{ form_action }}" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1">Brand *</label>
+                <input type="text" name="brand" class="w-full border rounded px-3 py-2" required
+                       value="{{ product.brand | default(value='') }}">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Nume *</label>
+                <input type="text" name="name" class="w-full border rounded px-3 py-2" required
+                       value="{{ product.name | default(value='') }}">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Slug (auto la adăugare)</label>
+                <input type="text" name="slug" class="w-full border rounded px-3 py-2"
+                       value="{{ product.slug | default(value='') }}"
+                       placeholder="ex: nume-produs">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Preț (bani)</label>
+                <input type="number" name="price_new" class="w-full border rounded px-3 py-2"
+                       value="{{ product.price_new | default(value='') }}"
+                       placeholder="ex: 599900 pentru 5999 Lei">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Stoc</label>
+                <input type="number" name="stock_count" class="w-full border rounded px-3 py-2"
+                       value="{{ product.stock_count | default(value='0') }}" min="0">
+            </div>
+            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
+                {% if product %}Salvează{% else %}Adaugă{% endif %}
+            </button>
+        </form>
+    </div>
+</div>

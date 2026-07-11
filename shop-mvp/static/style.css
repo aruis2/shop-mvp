@@ -1,0 +1,64 @@
+/* ============================================================
+   🛒 Shop MVP — Custom Styles
+   ============================================================ */
+
+:root {
+    --color-primary: #3b82f6;
+    --color-accent: #22c55e;
+}
+
+/* Stiluri globale */
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ============================================================
+   ♿ WCAG 2.1 — Accesibilitate
+   ============================================================ */
+
+/* Focus visible — respectă preferințele utilizatorului */
+:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Skip-to-content link (ascuns până la focus) */
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    background: white;
+    padding: 8px 16px;
+    border: 2px solid var(--color-primary);
+    border-radius: 4px;
+    color: var(--color-primary);
+    font-weight: 600;
+}
+.skip-link:focus {
+    top: 8px;
+}
+
+/* Contrast îmbunătățit pentru link-uri */
+a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+a:hover {
+    text-decoration-thickness: 2px;
+}
+
+/* Reduced motion — respectă setările utilizatorului */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

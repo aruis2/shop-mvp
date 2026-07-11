@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} — Shop MVP{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
+    <a href="{{ base_path }}/products" class="text-blue-600 text-sm">&larr; Înapoi</a>
+    <h1 class="text-3xl font-bold mt-2 mb-2">{{ product.name }}</h1>
+    <p class="text-gray-500 text-sm mb-4">{{ product.brand }}</p>
+
+    {% if product.price_lei %}
+        <p class="text-2xl text-green-600 font-bold mb-4">{{ product.price_lei }} Lei</p>
+    {% endif %}
+
+    {% if product.image_url %}
+        <img src="{{ product.image_url }}" alt="{{ product.name }}" class="w-full max-w-md mx-auto mb-4 rounded">
+    {% endif %}
+
+    {% if product.specs %}
+        <div class="border-t pt-4 mt-4">
+            <h2 class="font-semibold mb-2">Specificații</h2>
+            <table class="w-full text-sm">
+                {% for spec in product.specs %}
+                <tr class="border-b"><td class="py-1 pr-4 font-medium text-gray-600 capitalize">{{ spec.key | replace(from='_', to=' ') }}</td><td class="py-1">{{ spec.value }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endif %}
+
+    <div class="mt-6 flex gap-3 items-center">
+        <label class="text-sm text-gray-600">Cant.:</label>
+        <input type="number" id="qtyInput" value="1" min="1" class="w-20 border rounded px-3 py-2 text-center">
+        <button onclick="addToCart('{{ product.slug }}')" class="flex-1 bg-blue-600 text-white py-3 rounded-lg text-lg hover:bg-blue-700">+ Adaugă în coș</button>
+    </div>
+</div>
+
+<script>
+var sid = localStorage.getItem('session_id');
+if (!sid) { sid = crypto.randomUUID(); localStorage.setItem('session_id', sid); }
+
+function addToCart(slug) {
+    var qty = parseInt(document.getElementById('qtyInput').value) || 1;
+    fetch(BASE_PATH + '/cart/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id: sid, product_slug: slug, qty: qty })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() { location.reload(); })
+    .catch(function(e) { alert('Eroare: ' + e); });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Căutare: {{ query }} — Shop MVP{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">🔍 Căutare: „{{ query }}”</h1>
+<p class="text-gray-500 mb-4">{{ total }} rezultate</p>
+
+{% if total == 0 %}
+    <p class="text-gray-400 text-center py-8">Niciun produs găsit.</p>
+{% else %}
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+{% for product in products %}
+    <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition flex flex-col">
+        <h2 class="font-semibold">{{ product.name }}</h2>
+        <p class="text-gray-500 text-sm">{{ product.brand }}</p>
+        {% if product.price_lei %}
+            <p class="text-green-600 font-bold mt-2">{{ product.price_lei }} Lei</p>
+        {% endif %}
+        <div class="mt-auto pt-3 flex gap-2">
+            <button onclick="addToCart('{{ product.slug }}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">+ Coș</button>
+            <a href="{{ base_path }}/product/{{ product.slug }}" class="text-blue-600 text-sm py-1">Detalii</a>
+        </div>
+    </div>
+{% endfor %}
+</div>
+
+{% if total_pages > 1 %}
+<div class="flex justify-center gap-2 mt-8">
+    {% if page > 1 %}
+        <a href="{{ base_path }}/search?q={{ query }}&page=1" class="px-3 py-1 border rounded hover:bg-gray-100">&laquo;</a>
+        <a href="{{ base_path }}/search?q={{ query }}&page={{ page - 1 }}" class="px-3 py-1 border rounded hover:bg-gray-100">&lsaquo;</a>
+    {% endif %}
+    {% for p in range(start=1, end=total_pages + 1) %}
+        {% if p >= page - 2 and p <= page + 2 %}
+            {% if p == page %}
+                <span class="px-3 py-1 border rounded bg-blue-600 text-white">{{ p }}</span>
+            {% else %}
+                <a href="{{ base_path }}/search?q={{ query }}&page={{ p }}" class="px-3 py-1 border rounded hover:bg-gray-100">{{ p }}</a>
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+        <a href="{{ base_path }}/search?q={{ query }}&page={{ page + 1 }}" class="px-3 py-1 border rounded hover:bg-gray-100">&rsaquo;</a>
+        <a href="{{ base_path }}/search?q={{ query }}&page={{ total_pages }}" class="px-3 py-1 border rounded hover:bg-gray-100">&raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<script>
+var sid = localStorage.getItem('session_id');
+if (!sid) { sid = crypto.randomUUID(); localStorage.setItem('session_id', sid); }
+
+function addToCart(slug) {
+    fetch(BASE_PATH + '/cart/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id: sid, product_slug: slug, qty: 1 })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { alert('Adăugat în coș: ' + data.item.product_name + ' (total: ' + data.item_count + ' produse)'); })
+    .catch(function(e) { alert('Eroare: ' + e); });
+}
+</script>
+{% endblock %}

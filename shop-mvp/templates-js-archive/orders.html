@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Comenzile mele — Shop MVP{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">📦 Comenzile mele</h1>
+
+{% if orders | length == 0 %}
+    <div class="bg-white rounded-lg shadow p-6">
+        <p class="text-gray-400 text-center py-8">Nicio comandă.</p>
+    </div>
+{% else %}
+    <div class="space-y-4">
+    {% for order in orders %}
+        <div class="bg-white rounded-lg shadow p-4">
+            <div class="flex justify-between items-start">
+                <div>
+                    <p class="font-semibold">Comanda #{{ order.id | truncate(length=8) }}</p>
+                    <p class="text-sm text-gray-500">{{ order.created_at }}</p>
+                </div>
+                <span class="px-2 py-1 rounded text-sm 
+                    {% if order.status == 'pending' %}bg-yellow-100 text-yellow-800
+                    {% elif order.status == 'confirmed' %}bg-blue-100 text-blue-800
+                    {% elif order.status == 'shipped' %}bg-purple-100 text-purple-800
+                    {% elif order.status == 'delivered' %}bg-green-100 text-green-800
+                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {{ order.status }}
+                </span>
+                <span class="px-2 py-1 rounded text-sm ml-1
+                    {% if order.payment_status == 'paid' %}bg-green-100 text-green-800
+                    {% elif order.payment_status == 'failed' %}bg-red-100 text-red-800
+                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {% if order.payment_status == 'paid' %}Plătit{% else %}Neplătit{% endif %}
+                </span>
+            </div>
+            <p class="text-sm text-gray-600 mt-2">{{ order.shipping_name }} — {{ order.shipping_address }}</p>
+            <p class="text-lg font-bold mt-2">{{ order.total_lei }} Lei</p>
+            {% if order.payment_status != 'paid' and order.status != 'cancelled' %}
+            <button onclick="payOrder('{{ order.id }}')" class="mt-2 bg-blue-600 text-white px-4 py-1 rounded text-sm hover:bg-blue-700">
+                💳 Plătește acum
+            </button>
+            {% endif %}
+            {% if order.status == 'shipped' %}
+            <button onclick="confirmDelivery('{{ order.id }}')" class="mt-2 bg-green-600 text-white px-4 py-1 rounded text-sm hover:bg-green-700">
+                📦 Am primit comanda
+            </button>
+            {% endif %}
+        </div>
+    {% endfor %}
+    </div>
+{% endif %}
+
+<script>
+// Dacă nu ești autentificat, redirect la login
+if (!localStorage.getItem('token')) {
+    window.location.href = BASE_PATH + '/login?redirect=' + encodeURIComponent(BASE_PATH + '/orders');
+}
+
+function payOrder(orderId) {
+    var token = localStorage.getItem('token');
+    fetch(BASE_PATH + '/order/' + orderId + '/pay', {
+        method: 'POST',
+        headers: {'Authorization': 'Bearer ' + (token || ''), 'Content-Type': 'application/json'}
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.checkout_url) {
+            window.location.href = data.checkout_url;
+        } else {
+            alert('Eroare: ' + JSON.stringify(data));
+        }
+    })
+    .catch(function(e) { alert('Eroare: ' + e); });
+}
+
+function confirmDelivery(orderId) {
+    if (!confirm('Confirmi că ai primit comanda?')) return;
+    var token = localStorage.getItem('token');
+    fetch(BASE_PATH + '/admin/order/' + orderId + '/status?token=' + encodeURIComponent(token || ''), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: 'delivered'})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() { location.reload(); })
+    .catch(function(e) { alert('Eroare: ' + e); });
+}
+</script>
+{% endblock %}

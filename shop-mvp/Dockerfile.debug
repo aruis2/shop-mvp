@@ -1,0 +1,63 @@
+FROM rust:slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ========== 1. Copy only manifest files (max caching) ==========
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY libs/cache/Cargo.toml libs/cache/
+COPY libs/rust-auth/Cargo.toml libs/rust-auth/
+COPY libs/rust-cart/Cargo.toml libs/rust-cart/
+COPY libs/rust-marketplace-orders/Cargo.toml libs/rust-marketplace-orders/
+COPY libs/rust-marketplace-products/Cargo.toml libs/rust-marketplace-products/
+COPY libs/rust-payment/Cargo.toml libs/rust-payment/
+COPY libs/rust-path-prefix/Cargo.toml libs/rust-path-prefix/
+COPY libs/rust-slug/Cargo.toml libs/rust-slug/
+COPY libs/rust-knowledge-base/Cargo.toml libs/rust-knowledge-base/
+COPY libs/rust-marketplace-categories/Cargo.toml libs/rust-marketplace-categories/
+COPY libs/rust-marketplace-listings/Cargo.toml libs/rust-marketplace-listings/
+COPY libs/storage/Cargo.toml libs/storage/
+COPY libs/u32-i32-converter/Cargo.toml libs/u32-i32-converter/
+COPY libs/rust-wallet/Cargo.toml libs/rust-wallet/
+COPY shop-mvp/Cargo.toml shop-mvp/
+COPY shop/Cargo.toml shop/
+COPY portfolio/Cargo.toml portfolio/
+COPY router/Cargo.toml router/
+
+# ========== 2. Create dummy source files ==========
+RUN mkdir -p src && echo "fn main() {}" > src/main.rs
+RUN for d in libs/*/; do mkdir -p "${d}src" && echo "" > "${d}src/lib.rs"; done
+RUN for d in shop-mvp shop portfolio router; do mkdir -p "${d}/src" && echo "fn main() {}" > "${d}/src/main.rs"; done
+RUN mkdir -p libs/cache/src && echo "" > libs/cache/src/lib.rs
+RUN mkdir -p shop/src && echo "fn main() {}" > shop/src/main.rs
+
+# ========== 3. Build dependencies (cached by Docker) ==========
+ENV SQLX_OFFLINE=true
+RUN cargo build -p shop-mvp 2>/dev/null; exit 0
+
+# ========== 4. Copy REAL source code ==========
+COPY src src/
+COPY libs libs/
+COPY shop-mvp shop-mvp/
+COPY shop shop/
+COPY portfolio portfolio/
+COPY router router/
+
+# ========== 5. Final build (only our code) ==========
+RUN cargo build -p shop-mvp
+
+# ========== Runtime stage ==========
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /app/target/debug/shop-mvp .
+COPY --from=builder /app/shop-mvp/templates templates/
+COPY --from=builder /app/shop-mvp/static static/
+
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["./shop-mvp"]

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{% if product %}Editează{% else %}Adaugă{% endif %} produs — Admin{% endblock %}
+{% block head %}
+<script>
+(function() {
+    var token = localStorage.getItem('token');
+    if (token && !window.location.search.includes('token=')) {
+        var sep = window.location.search ? '&' : '?';
+        window.location.replace(window.location.pathname + window.location.search + sep + 'token=' + encodeURIComponent(token));
+    }
+})();
+</script>
+{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">{% if product %}✏️ Editează{% else %}➕ Adaugă{% endif %} produs</h1>
+
+<div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
+    <form id="productForm" class="space-y-4">
+        <div>
+            <label class="block text-sm font-medium mb-1">Brand *</label>
+            <input type="text" id="brand" class="w-full border rounded px-3 py-2" required
+                   value="{{ product.brand | default(value='') }}">
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Nume *</label>
+            <input type="text" id="name" class="w-full border rounded px-3 py-2" required
+                   value="{{ product.name | default(value='') }}">
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Slug</label>
+            <input type="text" id="slug" class="w-full border rounded px-3 py-2"
+                   value="{{ product.slug | default(value='') }}"
+                   placeholder="ex: nume-produs">
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Preț (bani)</label>
+            <input type="number" id="price_new" class="w-full border rounded px-3 py-2"
+                   value="{{ product.price_new | default(value='') }}"
+                   placeholder="ex: 599900 pentru 5999 Lei">
+        </div>
+        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
+            {% if product %}Salvează{% else %}Adaugă{% endif %}
+        </button>
+    </form>
+</div>
+
+<script>
+document.getElementById('productForm').onsubmit = async (e) => {
+    e.preventDefault();
+    var token = localStorage.getItem('token');
+    var slug = '{{ product.slug | default(value="") }}';
+    var url = slug ? BASE_PATH + '/admin/product/' + slug + '/edit' : BASE_PATH + '/admin/product/new';
+    var body = {
+        brand: document.getElementById('brand').value,
+        name: document.getElementById('name').value,
+        slug: document.getElementById('slug').value || undefined,
+        price_new: parseInt(document.getElementById('price_new').value) || null,
+        token: token
+    };
+    const res = await fetch(url + '?token=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    });
+    if (res.ok) {
+        alert('Salvat!');
+        window.location.href = BASE_PATH + '/admin';
+    } else {
+        const text = await res.text();
+        alert('Eroare: ' + text);
+    }
+};
+</script>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "layout/page.html" %}
+{% block title %}Politică de confidențialitate — Shop MVP{% endblock title %}
+{% block content %}
+<div class="max-w-3xl mx-auto prose">
+    <h1>Politică de confidențialitate</h1>
+    <p class="text-gray-500">Ultima actualizare: 2026</p>
+
+    <h2>1. Ce date colectăm</h2>
+    <ul>
+        <li>Nume și prenume (pentru livrare)</li>
+        <li>Adresă de email (pentru confirmare comandă)</li>
+        <li>Număr de telefon (pentru curier)</li>
+        <li>Adresă de livrare</li>
+        <li>Istoric al comenzilor</li>
+    </ul>
+
+    <h2>2. Cum folosim datele</h2>
+    <ul>
+        <li>Procesarea și livrarea comenzilor</li>
+        <li>Comunicarea privind statusul comenzii</li>
+        <li>Îmbunătățirea serviciilor</li>
+    </ul>
+
+    <h2>3. Baza legală</h2>
+    <p>Prelucrarea datelor se bazează pe executarea contractului (comanda plasată) și consimțământul explicit (crearea contului).</p>
+
+    <h2>4. Stocarea datelor</h2>
+    <p>Datele sunt stocate pe servere securizate în Uniunea Europeană. Păstrăm datele comenzilor timp de 10 ani (obligații fiscale). Datele contului pot fi șterse oricând.</p>
+
+    <h2>5. Drepturile tale</h2>
+    <ul>
+        <li><strong>Dreptul la ștergere</strong> — poți șterge contul din pagina <a href="{{ base_path }}/me">Profil</a></li>
+        <li><strong>Dreptul la portabilitate</strong> — poți exporta datele tot din <a href="{{ base_path }}/me">Profil</a></li>
+        <li><strong>Dreptul la rectificare</strong> — poți modifica datele oricând</li>
+        <li><strong>Dreptul la opoziție</strong> — te poți opune prelucrării</li>
+    </ul>
+
+    <h2>6. Cookie-uri</h2>
+    <p>Folosim cookie-uri esențiale pentru funcționarea site-ului (sesiune, token JWT). Nu folosim cookie-uri de tracking sau publicitare.</p>
+
+    <h2>7. Contact</h2>
+    <p>Pentru orice întrebare legată de confidențialitate, contactează-ne prin email.</p>
+</div>
+{% endblock content %}

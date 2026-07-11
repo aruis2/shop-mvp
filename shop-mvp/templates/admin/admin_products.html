@@ -1,0 +1,70 @@
+<h1 class="text-3xl font-bold mb-6">🛠️ Admin — Produse</h1>
+<p class="text-gray-500 mb-4">{{ total }} produse</p>
+
+{% if error %}
+<div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+    ❌ {{ error }}
+    <a href="{{ base_path }}/admin" class="ml-4 text-red-800 underline">← înapoi</a>
+</div>
+{% endif %}
+
+<div class="mb-4 flex gap-2">
+    <a href="{{ base_path }}/admin/product/new" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">+ Adaugă produs</a>
+    <a href="{{ base_path }}/admin/orders" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">📦 Comenzi</a>
+</div>
+
+<div id="admin-products" class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="w-full">
+        <tr class="border-b bg-gray-50 text-left">
+            <th class="p-3">Brand</th>
+            <th class="p-3">Nume</th>
+            <th class="p-3">Preț</th>
+            <th class="p-3">Stoc</th>
+            <th class="p-3">Slug</th>
+            <th class="p-3">Acțiuni</th>
+        </tr>
+        {% for product in products %}
+        <tr class="border-b hover:bg-gray-50">
+            <td class="p-3">{{ product.brand }}</td>
+            <td class="p-3">{{ product.name }}</td>
+            <td class="p-3">{{ product.price_lei }} Lei</td>
+            <td class="p-3">
+                {% if product.stock_count > 0 %}
+                <span class="text-green-600 text-sm">{{ product.stock_count }}</span>
+                {% else %}
+                <span class="text-red-500 text-sm">0</span>
+                {% endif %}
+            </td>
+            <td class="p-3 text-sm text-gray-500">{{ product.slug }}</td>
+            <td class="p-3 flex gap-2">
+                <a href="{{ base_path }}/admin/product/{{ product.slug }}/edit" class="text-blue-600 text-sm hover:underline">Editează</a>
+                <form method="POST" action="{{ base_path }}/admin/product/{{ product.slug }}/delete" style="display:inline" onsubmit="return confirm('Sigur ștergi produsul {{ product.slug }}?')">
+                    <button type="submit" class="text-red-600 text-sm hover:underline">Șterge</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="flex justify-center gap-2 mt-6">
+    {% if page > 1 %}
+        <a href="{{ base_path }}/admin?page=1" class="px-3 py-1 border rounded hover:bg-gray-100">&laquo;</a>
+        <a href="{{ base_path }}/admin?page={{ page - 1 }}" class="px-3 py-1 border rounded hover:bg-gray-100">&lsaquo;</a>
+    {% endif %}
+    {% for p in range(start=1, end=total_pages + 1) %}
+        {% if p >= page - 2 and p <= page + 2 %}
+            {% if p == page %}
+                <span class="px-3 py-1 border rounded bg-blue-600 text-white">{{ p }}</span>
+            {% else %}
+                <a href="{{ base_path }}/admin?page={{ p }}" class="px-3 py-1 border rounded hover:bg-gray-100">{{ p }}</a>
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+        <a href="{{ base_path }}/admin?page={{ page + 1 }}" class="px-3 py-1 border rounded hover:bg-gray-100">&rsaquo;</a>
+        <a href="{{ base_path }}/admin?page={{ total_pages }}" class="px-3 py-1 border rounded hover:bg-gray-100">&raquo;</a>
+    {% endif %}
+</div>
+{% endif %}

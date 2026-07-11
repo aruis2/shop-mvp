@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Coș de cumpărături{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">🛒 Coșul meu</h1>
+
+{% if cart_items | length == 0 %}
+    <div class="bg-white rounded-lg shadow p-6">
+        <p class="text-gray-400 text-center py-8">Coșul e gol.</p>
+    </div>
+{% else %}
+    <div id="cart-container" class="bg-white rounded-lg shadow p-6">
+        <table class="w-full">
+            <tr class="border-b text-left">
+                <th class="pb-2">Produs</th>
+                <th class="pb-2">Preț coș</th>
+                <th class="pb-2">Preț curent</th>
+                <th class="pb-2">Cant.</th>
+                <th class="pb-2">Subtotal</th>
+                <th></th>
+            </tr>
+            {% for item in cart_items %}
+            <tr class="border-b" id="cart-row-{{ item.id }}">
+                <td class="py-2">{{ item.product_name }}</td>
+                <td class="py-2">{{ item.price_lei }} Lei</td>
+                <td class="py-2">{{ item.current_price_lei }} Lei</td>
+                <td class="py-2">{{ item.qty }}</td>
+                <td class="py-2 font-semibold">{{ item.subtotal_lei }} Lei</td>
+                <td class="py-2">
+                    <button hx-post="/cart/remove"
+                            hx-vals='{"item_id":"{{ item.id }}","session_id":""}'
+                            hx-target="#cart-container"
+                            hx-swap="outerHTML"
+                            class="text-red-600 text-sm hover:text-red-800">
+                        Șterge
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    <div class="mt-4 bg-white rounded-lg shadow p-6 text-right">
+        <p class="text-xl font-bold">Total: {{ total_lei }} Lei</p>
+        <a href="{{ base_path }}/checkout?session_id={{ session_id }}"
+           class="inline-block mt-4 bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">
+            Finalizează comandă
+        </a>
+    </div>
+{% endif %}
+
+<script>
+// Asigură session_id
+var sid = localStorage.getItem('session_id');
+if (!sid) { sid = crypto.randomUUID(); localStorage.setItem('session_id', sid); }
+</script>
+{% endblock %}

@@ -1,0 +1,15 @@
+target/
+uploads/
+*.jsonl
+.env
+.env.save
+.env.dev
+.env.prod
+# .env.prod.example se commitează (fără date sensibile)
+20260706000005_add_more_articles.sql
+explore/
+logs/
+*.log
+secrets/
+.vscode/
+*.swp

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Comandă reușită!{% endblock %}
+{% block content %}
+<div class="text-center py-16">
+    <h1 class="text-5xl mb-4">✅</h1>
+    <h1 class="text-3xl font-bold mb-4">Comandă reușită!</h1>
+    <p class="text-xl text-gray-600 mb-8">Plata a fost procesată cu succes.</p>
+    <p class="text-gray-500 mb-8">Vezi istoricul comenzilor în secțiunea Comenzi.</p>
+    <div class="flex gap-4 justify-center">
+        <a href="{{ base_path }}/products" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">Continuă cumpărăturile</a>
+        <a href="{{ base_path }}/orders" class="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700" id="ordersBtn">Comenzile mele</a>
+    </div>
+</div>
+<script>
+document.getElementById('ordersBtn').onclick = function(e) {
+    e.preventDefault();
+    var token = localStorage.getItem('token');
+    window.location.href = BASE_PATH + '/orders?token=' + encodeURIComponent(token || '');
+};
+</script>
+{% endblock %}

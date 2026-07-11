@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Admin — Produse{% endblock %}
+{% block head %}
+<script>
+(function() {
+    var token = localStorage.getItem('token');
+    if (token && !window.location.search.includes('token=')) {
+        var sep = window.location.search ? '&' : '?';
+        window.location.replace(window.location.pathname + window.location.search + sep + 'token=' + encodeURIComponent(token));
+    }
+})();
+</script>
+{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">🛠️ Admin — Produse</h1>
+<p class="text-gray-500 mb-4">{{ total }} produse</p>
+
+<div class="mb-4 flex gap-2">
+    <a href="{{ base_path }}/admin/product/new" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">+ Adaugă produs</a>
+    <a href="{{ base_path }}/admin/orders" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">📦 Comenzi</a>
+</div>
+
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="w-full">
+        <tr class="border-b bg-gray-50 text-left">
+            <th class="p-3">Brand</th>
+            <th class="p-3">Nume</th>
+            <th class="p-3">Preț</th>
+            <th class="p-3">Slug</th>
+            <th class="p-3">Acțiuni</th>
+        </tr>
+        {% for product in products %}
+        <tr class="border-b hover:bg-gray-50">
+            <td class="p-3">{{ product.brand }}</td>
+            <td class="p-3">{{ product.name }}</td>
+            <td class="p-3">{{ product.price_lei }} Lei</td>
+            <td class="p-3 text-sm text-gray-500">{{ product.slug }}</td>
+            <td class="p-3 flex gap-2">
+                <a href="{{ base_path }}/admin/product/{{ product.slug }}/edit" class="text-blue-600 text-sm hover:underline">Editează</a>
+                <button onclick="deleteProduct('{{ product.slug }}')" class="text-red-600 text-sm hover:underline">Șterge</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<script>
+(function() {
+    var token = localStorage.getItem('token');
+    // Adaugă token la toate linkurile admin
+    document.querySelectorAll('a[href^="/admin/"]').forEach(function(a) {
+        if (!a.href.includes('token=')) {
+            var sep = a.href.includes('?') ? '&' : '?';
+            a.href += sep + 'token=' + encodeURIComponent(token || '');
+        }
+    });
+})();
+
+function deleteProduct(slug) {
+    if (!confirm('Sigur ștergi produsul ' + slug + '?')) return;
+    var token = localStorage.getItem('token');
+    fetch(BASE_PATH + '/admin/product/' + slug + '/delete?token=' + encodeURIComponent(token), {
+        method: 'POST'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() { location.reload(); })
+    .catch(function(e) { alert('Eroare: ' + e); });
+}
+</script>
+{% endblock %}

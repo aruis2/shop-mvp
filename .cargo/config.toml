@@ -1,0 +1,8 @@
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[env]
+RUSTC_WRAPPER = "/home/iuri/Desktop/2/myapp/.cargo/sccache-wrapper.sh"

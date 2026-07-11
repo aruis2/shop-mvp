@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Shop MVP{% endblock title %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+    <link rel="stylesheet" href="{{ base_path }}/static/style.css">
+    <script>var BASE_PATH = '{{ base_path }}';</script>
+    <script>
+    // HTMX: include token + session_id în toate request-urile
+    document.addEventListener('htmx:configRequest', function(evt) {
+        var token = localStorage.getItem('token');
+        if (token) evt.detail.headers['Authorization'] = 'Bearer ' + token;
+        var sid = localStorage.getItem('session_id');
+        if (sid) evt.detail.headers['X-Session-Id'] = sid;
+    });
+    </script>
+    {% block head %}{% endblock head %}
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        try {
+            var userData = localStorage.getItem('user');
+            var info = document.getElementById('userInfo');
+            if (info && userData && userData !== 'null' && userData !== 'undefined') {
+                try {
+                    var u = JSON.parse(userData);
+                    if (!u || !u.email) throw 'invalid';
+                    var p=window.location.pathname; var isAuth=p===BASE_PATH+'/orders'||p===BASE_PATH+'/admin'||p.startsWith(BASE_PATH+'/admin/')||p===BASE_PATH+'/checkout'; 
+                    info.innerHTML = '<span class="text-gray-600 mr-2">' + u.email + '</span><a href="#" class="text-red-600 hover:text-red-800" onclick="event.preventDefault(); localStorage.removeItem(\'token\'); localStorage.removeItem(\'user\'); var pp=window.location.pathname; var aa=pp===\'' + BASE_PATH + '/orders\'||pp===\'' + BASE_PATH + '/admin\'||pp.startsWith(\'' + BASE_PATH + '/admin/\')||pp===\'' + BASE_PATH + '/checkout\'; window.location.href=aa?\'' + BASE_PATH + '/\':window.location.href; return false;">Logout</a>';
+                } catch(e) {
+                    if (info) info.innerHTML = '<a href="' + BASE_PATH + '/login" class="text-blue-600 hover:text-blue-800">Autentificare</a>';
+                }
+                // Show orders link for logged-in users
+                var ordersLink = document.getElementById('ordersLink');
+                if (ordersLink) {
+                    var token = localStorage.getItem('token');
+                    ordersLink.href = BASE_PATH + '/orders?token=' + encodeURIComponent(token || '');
+                    ordersLink.style.display = '';
+                }
+                // Show admin link for admin users
+                if (u.role === 'admin') {
+                    var adminLink = document.getElementById('adminLink');
+                    if (adminLink) adminLink.style.display = '';
+                }
+            } else if (info) {
+                info.innerHTML = '<a href="' + BASE_PATH + '/login" class="text-blue-600 hover:text-blue-800">Autentificare</a>';
+            }
+        } catch(e) {
+            var info = document.getElementById('userInfo');
+            if (info) info.innerHTML = '<a href="' + BASE_PATH + '/login" class="text-blue-600 hover:text-blue-800">Autentificare</a>';
+        }
+
+        // Redirect pe linkurile de login/signup
+        var authLinks = document.querySelectorAll('a[href="' + BASE_PATH + '/login"], a[href="' + BASE_PATH + '/signup"]');
+        authLinks.forEach(function(link) {
+            var currentPath = window.location.pathname + window.location.search;
+            var loginPath = BASE_PATH + '/login';
+            var signupPath = BASE_PATH + '/signup';
+            if (currentPath !== loginPath && currentPath !== signupPath && !currentPath.startsWith(loginPath+'?') && !currentPath.startsWith(signupPath+'?')) {
+                if (!link.href.includes('redirect=')) {
+                    var sep = link.href.includes('?') ? '&' : '?';
+                    link.href += sep + 'redirect=' + encodeURIComponent(currentPath);
+                }
+            }
+        });
+
+        // Cart link: include session_id
+        var cartLink = document.getElementById('cartLink');
+        if (cartLink) {
+            var sid = localStorage.getItem('session_id');
+            if (sid) {
+                cartLink.href = BASE_PATH + '/cart?session_id=' + encodeURIComponent(sid);
+            }
+        }
+
+        // Orders link: include session_id
+        var ordersLink = document.getElementById('ordersLink');
+    });
+    </script>
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex gap-6 items-center">
+            <a href="{{ base_path }}/" class="font-bold text-xl">🛒 Shop</a>
+            <a href="{{ base_path }}/products" class="text-gray-600 hover:text-black">Produse</a>
+            <a href="{{ base_path }}/cart" class="text-gray-600 hover:text-black" id="cartLink">Coș</a>
+            <a href="{{ base_path }}/orders?token=" class="text-gray-600 hover:text-black" id="ordersLink" style="display:none">Comenzi</a>
+            <a href="{{ base_path }}/admin" class="text-gray-600 hover:text-black" id="adminLink" style="display:none">Admin</a>
+            <form action="{{ base_path }}/search" method="GET" class="flex-1 max-w-xs ml-auto">
+                <input type="text" name="q" placeholder="Caută produse..." class="w-full border rounded px-3 py-1 text-sm focus:outline-none focus:border-blue-400">
+            </form>
+            <span id="userInfo" class="ml-2"></span>
+        </div>
+    </nav>
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        {% block content %}{% endblock content %}
+    </main>
+    <footer class="text-center text-gray-400 text-sm py-8">
+        &copy; 2026 Shop MVP
+    </footer>
+</body>
+</html>

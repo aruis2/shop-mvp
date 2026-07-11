@@ -1,0 +1,40 @@
+{% extends "layout/page.html" %}
+{% block title %}Securitate — Shop MVP{% endblock title %}
+{% block content %}
+<div class="max-w-3xl mx-auto prose">
+    <h1>Politica de securitate</h1>
+    <p class="text-gray-500">PCI DSS — Payment Card Industry Data Security Standard</p>
+
+    <h2>1. Plăți sigure</h2>
+    <p>Toate plățile sunt procesate prin <strong>Stripe</strong>, un procesator de plăți PCI DSS Level 1 compliant. Nu stocăm, nu procesăm și nu avem acces la:</p>
+    <ul>
+        <li>Numere de card</li>
+        <li>Coduri CVV</li>
+        <li>Date de expirare</li>
+    </ul>
+
+    <h2>2. Criptare</h2>
+    <ul>
+        <li><strong>În tranzit:</strong> HTTPS + TLS 1.2+, HSTS activ</li>
+        <li><strong>La stocare:</strong> parole hash-uite cu Argon2, tokeni JWT semnați HMAC-SHA256</li>
+    </ul>
+
+    <h2>3. Control acces</h2>
+    <ul>
+        <li>Autentificare prin JWT HttpOnly cookies</li>
+        <li>Autorizare bazată pe capabilități (fiecare handler vede doar ce-i trebuie)</li>
+        <li>Rate limiting: 10 req/min pe login</li>
+        <li>Account lockout: 5 încercări eșuate → 15min blocare</li>
+    </ul>
+
+    <h2>4. Monitorizare</h2>
+    <ul>
+        <li>Toate request-urile sunt logate cu ID unic</li>
+        <li>Timpii de răspuns sunt monitorizați</li>
+        <li>Încercările eșuate de plată sunt înregistrate</li>
+    </ul>
+
+    <h2>5. Testare periodică</h2>
+    <p>Se efectuează scanări periodice de vulnerabilități și actualizări de securitate pentru toate dependințele.</p>
+</div>
+{% endblock content %}

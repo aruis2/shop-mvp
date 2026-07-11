@@ -1,0 +1,19 @@
+# security.txt — Vulnerability Disclosure Policy (RFC 9116)
+# CIS Control 7: Continuous Vulnerability Management
+# Ultima actualizare: 2026-07-11
+
+# Contact pentru raportarea vulnerabilităților
+Contact: mailto:security@shop-mvp.local
+Contact: https://github.com/user/shop-mvp/security/advisories
+
+# Politica de disclosure
+Policy: https://shop-mvp.local/security
+
+# Cheie PGP (opțională)
+# Encryption: https://shop-mvp.local/.well-known/pgp-key.asc
+
+# Canale preferate
+Preferred-Languages: ro, en
+
+# Nume proiect
+Canonical: https://shop-mvp.local/.well-known/security.txt

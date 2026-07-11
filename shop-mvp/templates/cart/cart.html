@@ -1,0 +1,50 @@
+<h1 class="text-3xl font-bold mb-6">🛒 Coșul meu</h1>
+
+{% if error %}
+<div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+    ❌ {{ error }}
+    <a href="{{ base_path }}/cart" class="ml-4 text-red-800 underline">← înapoi</a>
+</div>
+{% endif %}
+
+{% if cart_items | length == 0 %}
+    <div class="bg-white rounded-lg shadow p-6">
+        <p class="text-gray-400 text-center py-8">Coșul e gol.</p>
+    </div>
+{% else %}
+    <div id="cart-container">
+        <div class="bg-white rounded-lg shadow p-6">
+            <table class="w-full">
+                <tr class="border-b text-left">
+                    <th class="pb-2">Produs</th>
+                    <th class="pb-2">Preț coș</th>
+                    <th class="pb-2">Preț curent</th>
+                    <th class="pb-2">Cant.</th>
+                    <th class="pb-2">Subtotal</th>
+                    <th></th>
+                </tr>
+                {% for item in cart_items %}
+                <tr class="border-b" id="cart-row-{{ item.id }}">
+                    <td class="py-2">{{ item.product_name }}</td>
+                    <td class="py-2">{{ item.price_lei }} Lei</td>
+                    <td class="py-2">{{ item.current_price_lei }} Lei</td>
+                    <td class="py-2">{{ item.qty }}</td>
+                    <td class="py-2 font-semibold">{{ item.subtotal_lei }} Lei</td>
+                    <td class="py-2">
+                        <form method="POST" action="{{ base_path }}/cart/remove" style="display:inline">
+                            <input type="hidden" name="item_id" value="{{ item.id }}">
+                            <button type="submit" class="text-red-600 text-sm hover:text-red-800">Șterge</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="mt-4 bg-white rounded-lg shadow p-6 text-right">
+            <p class="text-xl font-bold">Total: {{ total_lei }} Lei</p>
+            <a href="{{ base_path }}/checkout" class="inline-block mt-4 bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">
+                Finalizează comandă
+            </a>
+        </div>
+    </div>
+{% endif %}

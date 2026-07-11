@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Acasă — Shop MVP{% endblock %}
+{% block content %}
+<div class="text-center py-12 max-w-4xl mx-auto">
+    <h1 class="text-5xl font-bold mb-4">🛒 Shop MVP</h1>
+    <p class="text-xl text-gray-600 mb-10">Marketplace simplu, plăți directe prin Stripe</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 text-left">
+        <div class="bg-white rounded-xl shadow-sm p-6 border hover:shadow-md transition">
+            <div class="text-3xl mb-3">📦</div>
+            <h3 class="font-semibold text-lg mb-2">Catalog produse</h3>
+            <p class="text-gray-500 text-sm">Răsfoiește produse cu paginare, caută după nume sau brand, vezi detalii și specificații.</p>
+            <a href="{{ base_path }}/products" class="text-blue-600 text-sm hover:underline mt-3 inline-block">Vezi produse →</a>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 border hover:shadow-md transition">
+            <div class="text-3xl mb-3">🛒</div>
+            <h3 class="font-semibold text-lg mb-2">Coș de cumpărături</h3>
+            <p class="text-gray-500 text-sm">Adaugă produse în coș, ajustează cantități, și finalizează comanda într-un singur click.</p>
+            <a href="{{ base_path }}/cart" class="text-blue-600 text-sm hover:underline mt-3 inline-block">Deschide coșul →</a>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 border hover:shadow-md transition">
+            <div class="text-3xl mb-3">💳</div>
+            <h3 class="font-semibold text-lg mb-2">Plată Stripe</h3>
+            <p class="text-gray-500 text-sm">Plăți sigure prin Stripe Checkout. Statusul comenzii se actualizează automat după plată.</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 border hover:shadow-md transition">
+            <div class="text-3xl mb-3">🔐</div>
+            <h3 class="font-semibold text-lg mb-2">Autentificare</h3>
+            <p class="text-gray-500 text-sm">Creează-ți cont, autentifică-te, și urmărește-ți istoricul comenzilor.</p>
+            <a href="{{ base_path }}/signup" class="text-blue-600 text-sm hover:underline mt-3 inline-block">Înregistrează-te →</a>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 border hover:shadow-md transition">
+            <div class="text-3xl mb-3">📋</div>
+            <h3 class="font-semibold text-lg mb-2">Comenzi</h3>
+            <p class="text-gray-500 text-sm">Vezi statusul comenzilor tale: în așteptare, confirmată, expediată, livrată.</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 border hover:shadow-md transition">
+            <div class="text-3xl mb-3">⚙️</div>
+            <h3 class="font-semibold text-lg mb-2">Admin</h3>
+            <p class="text-gray-500 text-sm">Gestionează produse și comenzi. Acces doar pentru utilizatori autorizați.</p>
+        </div>
+    </div>
+
+    <div class="flex gap-4 justify-center">
+        <a href="/products" class="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 font-medium transition">Vezi produse</a>
+        <a href="/signup" class="bg-white text-blue-600 px-8 py-3 rounded-lg border border-blue-600 hover:bg-blue-50 font-medium transition">Creează cont</a>
+    </div>
+</div>
+{% endblock %}
