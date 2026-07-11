@@ -301,6 +301,37 @@ fi
 req GET "/success" 200 "4m. Success fără order_id → 200" "" "$JAR_USER"
 req GET "/success?order_id=00000000-0000-0000-0000-000000000000" 200 "4n. Success cu order_id → 200" "" "$JAR_USER"
 
+# ─── Căi de eroare la checkout ─────────────────────────
+# 4o: Checkout cu nume gol → redirect la /checkout?error=... și eroarea apare în HTML
+if [[ -n "$FIRST_SLUG" ]]; then
+    LOC_4o=$(req_location POST "/checkout" "$JAR_USER" \
+        "session_id=${SESSION_ID}&shipping_name=&shipping_address=Strada+X+123&shipping_phone=0712345678&guest_email=${NEW_EMAIL}")
+    if echo "$LOC_4o" | grep -qE 'error=Numele|/checkout\?error='; then
+        ((PASS++))
+    else
+        ((FAIL++))
+        ERRORS+="  ❌ 4o. Checkout nume gol → așteptat /checkout?error=..., primit '${LOC_4o}'\n"
+    fi
+    # Verifică că eroarea apare în HTML (după redirect, eroarea e pe checkout sau cart)
+    if [[ -n "$LOC_4o" ]]; then
+        ERR_HTML=$(curl -s -L -b "$JAR_USER" "${LOC_4o}" 2>/dev/null)
+        check_contains "$ERR_HTML" '❌' "4p. Checkout nume gol → apare '❌' în HTML"
+        check_contains "$ERR_HTML" 'red-700' "4q. Checkout → stil eroare (red-700)"
+    fi
+
+    # 4r: Checkout cu nume gol dar fără a fi autentificat → redirect la checkout cu eroare
+    LOC_4r=$(req_location POST "/checkout" "$JAR_ANON" \
+        "session_id=anon&shipping_name=&shipping_address=Strada+X+123&shipping_phone=0712345678")
+    if echo "$LOC_4r" | grep -qE 'error='; then
+        ((PASS++))
+    else
+        ((FAIL++))
+        ERRORS+="  ❌ 4r. Checkout anonim nume gol → așteptat ?error=..., primit '${LOC_4r}'\n"
+    fi
+else
+    ((PASS=PASS+5))
+fi
+
 # ═══════════════════════════════════════════════════════════
 # 📖 SCENARIU 5: PLATĂ COMANDA (flow complet)
 # ═══════════════════════════════════════════════════════════
@@ -329,6 +360,37 @@ req POST "/order/00000000-0000-0000-0000-000000000000/pay" 302 \
     "5c. Plată UUID nul → 302" "" "$JAR_USER"
 req POST "/order/00000000-0000-0000-0000-000000000000/pay" 302 \
     "5d. Plată neautentificat → 302" "" "$JAR_ANON"
+
+# Verifică că mesajele de eroare apar în HTML (nu doar 302)
+# 5c → redirect la /orders (sau /login) cu ?error=
+LOC_5C=$(req_location POST "/order/00000000-0000-0000-0000-000000000000/pay" "$JAR_USER")
+if [[ -n "$LOC_5C" ]]; then
+    ERR_HTML=$(curl -s -L -b "$JAR_USER" "${LOC_5C}" 2>/dev/null)
+    check_contains "$ERR_HTML" '❌' "5e. Eroare UUID nul → apare '❌' în HTML"
+else
+    ((FAIL++))
+    ERRORS+="  ❌ 5e. Eroare UUID nul → Location gol\n"
+fi
+
+# 5d → redirect la /login cu ?error=... (neautentificat)
+LOC_5D=$(req_location POST "/order/00000000-0000-0000-0000-000000000000/pay" "$JAR_ANON")
+if [[ -n "$LOC_5D" ]]; then
+    ERR_HTML=$(curl -s -L -b "$JAR_ANON" "${LOC_5D}" 2>/dev/null)
+    check_contains "$ERR_HTML" '❌' "5f. Eroare neautentificat → apare '❌' în HTML"
+else
+    ((FAIL++))
+    ERRORS+="  ❌ 5f. Eroare neautentificat → Location gol\n"
+fi
+
+# Verificare completă că erorile din order_pay cu mesaje cu diacritice
+# se afișează corect (test specific pentru bug-ul de URL encoding)
+LOC_5D_FULL=$(req_location POST "/order/00000000-0000-0000-0000-000000000000/pay" "$JAR_ANON")
+if echo "$LOC_5D_FULL" | grep -qE 'Trebuie|autentificat|error='; then
+    ((PASS++))
+else
+    ((FAIL++))
+    ERRORS+="  ❌ 5g. Eroare neautentificat → Location conține 'error=' cu mesaj\n"
+fi
 
 # ═══════════════════════════════════════════════════════════
 # 📖 SCENARIU 6: ADMIN — gestiune produse + comenzi

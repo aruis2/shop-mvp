@@ -119,6 +119,29 @@ Dacă ai nevoie de browser ca să testezi, ai **state client-side** care poate f
 
 **Corolar:** Orice rută nouă trebuie să poată fi testată cu `curl` înainte de a fi considerată completă. Dacă nu poți testa cu `curl`, e un semn că designul e greșit.
 
+#### 17. Testele trebuie să verifice și căile de eroare, nu doar status code-uri
+
+> **"Un test care verifică doar 302 e o soluție falsă. Eroarea trebuie să apară în HTML."**
+> — DeepSeek (după 2 bug-uri identice cu `?error=`)
+
+**Problema:** În test-behavior.sh, testele de eroare verifică doar status code-ul HTTP (302), nu și conținutul paginii după redirect. Astfel, un bug în care eroarea nu se afișează (template fără `{% if error %}`, handler care nu extrage `error` din query params, URL encoding lipsă) nu e prins de teste.
+
+**Exemplu concret:** Testul `5c. Plată UUID nul → 302` face un POST la o comandă inexistentă și verifică doar că răspunsul e 302. Dacă URL-ul de redirect e `/?error=ceva+cu+spații` (fără encoding), browserul respinge URL-ul și pagina rămâne aceeași — dar testul trece pentru că 302 e returnat.
+
+**Reguli noi:**
+1. **Orice `error_redirect()` trebuie să aibă un test care:**
+   - Trimite requestul care declanșează eroarea
+   - Salvează `Location` din 302
+   - Face GET la URL-ul respectiv
+   - Verifică că mesajul de eroare apare în HTML (`❌ ...`)
+2. **Orice eroare care implică caractere non-ASCII (ă, â, î, ș, ț) trebuie testată explicit** — URL encoding-ul e ușor de uitat
+3. **Verificări de conținut obligatorii** — fiecare test `req` cu `302` pe o cale de eroare trebuie urmat de un `check_contains` pe pagina țintă
+
+**Testele nu se adaugă singure.** Dar avem un proces care le cere explicit:
+- Issue/PR template care include checkbox: "Am adăugat teste pentru căile de eroare?"
+- În SPEC-CURL.md, fiecare rută documentează și răspunsurile de eroare
+- Test-generator script care verifică că fiecare `error_redirect()` are un corespondent în test-behavior.sh
+
 ### Tabel complet: Bug-uri de runtime și soluțiile lor
 
 | Bug | Rust prinde? | Soluție specifică | Unde se aplică |
