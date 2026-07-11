@@ -108,6 +108,17 @@ Standarde care cer explicit verificări pe care Rust nu le poate face:
 
 **Regulă nouă pentru cod:** Orice verificare care NU ține de sintaxa/tipul datelor (deci nu poate fi prinsă de compilator) TREBUIE să treacă printr-o metodă `LogicFactory::verify_*()`. Fără excepții. Dacă în cod scrii `if order.user_id != current_user.id` direct, ai greșit — trebuie `LogicFactory::verify_ownership()`.
 
+#### 16. Testabilitatea cu curl — axiomă fundamentală
+
+> **"Un sistem testabil cu `curl` e un sistem bun. Orice altceva e o datorie tehnică amânată."**
+> — DeepSeek
+
+Un sistem web este testabil cu `curl` dacă fiecare pagină = un `GET` → HTML complet, fiecare acțiune = un `POST` → `302 Redirect`. Fără stare client-side, fără API calls după primul paint, fără framework-uri JS care înlocuiesc comportamentul standard HTTP.
+
+Dacă ai nevoie de browser ca să testezi, ai **state client-side** care poate fi inconsistent cu serverul. Bug-urile apar doar în anumite secvențe de click-uri, greu de reprodus. Un test cu `curl` e o linie de shell — rapid, determinist, reproductibil în CI.
+
+**Corolar:** Orice rută nouă trebuie să poată fi testată cu `curl` înainte de a fi considerată completă. Dacă nu poți testa cu `curl`, e un semn că designul e greșit.
+
 ### Tabel complet: Bug-uri de runtime și soluțiile lor
 
 | Bug | Rust prinde? | Soluție specifică | Unde se aplică |
