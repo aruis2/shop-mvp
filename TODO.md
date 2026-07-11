@@ -28,6 +28,43 @@
 - [ ] Înlocuire `String` → `Slug` în ProductRepo
 - [ ] Înlocuire `i32` → `ProductId`, `CategoryId`
 
+### 1.3 Conformitate Rust cu standardele (din STANDARDS.md)
+
+Rust ca limbaj acoperă nativ sau prin tooling standard următoarele cerințe din standardele noastre:
+
+| Standard | Cerință | Cum o acoperă Rust | Status |
+|---|---|---|---|
+| **OWASP ASVS V2** (Authentication) | Password storage, session mgmt | JWT, hashing cu `rust-auth` | ✅ |
+| **OWASP ASVS V5** (Validation) | Input validation | `InputFactory` + newtype pattern | ✅ |
+| **OWASP ASVS V6** (Output Encoding) | XSS prevention | `OutputFactory::sanitize_context()` | ✅ |
+| **OWASP ASVS V8** (Data Protection) | Cache control, CSP | Headere în `security_headers` | ✅ |
+| **OWASP ASVS V9** (Communication) | TLS, HSTS | HSTS header, `upgrade-insecure-requests` | ✅ |
+| **OWASP ASVS V10** (Malicious Code) | CSP, integrity | CSP strict (`script-src 'self'`) | ✅ |
+| **OWASP API Top 10 #1** (Broken Object Level Auth) | Auth pe fiecare endpoint | Capability-based state, token per request | ✅ |
+| **OWASP API Top 10 #7** (Security Misconfiguration) | Headere, CORS | `security_headers` middleware | ✅ |
+| **CIS Control 7** (Vulnerability Mgmt) | Scan dependencies | `cargo audit` în CI | ✅ |
+| **CIS Control 16** (App Security) | Secure coding | `cargo clippy -D warnings`, `#![deny(unsafe_code)]` | ✅ |
+| **Rust Edition 2024** | Limbaj actualizat | `edition = "2024"` în Cargo.toml | ✅ |
+| **Rust API Guidelines** | Conventions | Naming `snake_case`, trait-uri standard | ✅ |
+| **Memory Safety** (vs C/C++) | Buffer overflow, UAF, double-free | **Nativ** — garantat de compilator | ✅ Gratis |
+| **Type Safety** (vs TypeScript/JS) | Null, undefined, type coercion | **Nativ** — `Option<T>`, `Result<T,E>`, pattern matching | ✅ Gratis |
+| **Thread Safety** (vs Java/Python) | Race conditions | **Nativ** — Send + Sync traits, ownership | ✅ Gratis |
+
+#### Ce mai trebuie la nivel de limbaj/tooling
+
+| Cerință | Standard | Instrument | Efort |
+|---|---|---|---|
+| Fuzzing pe InputFactory | OWASP ASVS V5 | `cargo fuzz` | ~3h |
+| Code coverage | CIS Control 16 | `cargo tarpaulin` | ~30min |
+| Supply chain audit | SLSA Level 1+ | `cargo vet` (Mozilla) | ~2h |
+| Block known-vuln deps | OWASP API Top 10 #6 | `cargo deny` | ~30min |
+| UB detection | ISO 26262 (ASIL) | MIRI | ~1h |
+| Concurrency testing | OWASP ASVS V1 | `loom` | ~2h |
+| SBOM generation | NTIA / SPDX | `cargo sbom` | ~30min |
+| Bloat detection | — | `cargo bloat` | ~15min |
+| Geiger counter (unsafe audit) | CIS Control 16 | `cargo geiger` | ~15min |
+| PGO optimization | NIST SP 800-207 | `-C profile-generate` | ~2h
+
 ### 1.3 Securitate suplimentară
 - [ ] `cargo deny` — blocare dependințe cu vulnerabilități + licențe interzise
 - [ ] `cargo tarpaulin` — code coverage (minim 80%)
