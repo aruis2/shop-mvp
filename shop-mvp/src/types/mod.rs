@@ -17,6 +17,7 @@ pub mod currency;
 pub mod email;
 pub mod error;
 pub mod id_types;
+pub mod parser;
 pub mod phone;
 pub mod price;
 pub mod quantity;
