@@ -521,12 +521,19 @@ async fn security_headers(
     // Zero JS (HN philosophy) → script-src 'self' e suficient.
     // style-src 'unsafe-inline' e necesar pentru clase CSS inline în Tera.
     // frame-ancestors 'none' + X-Frame-Options DENY dublează protecția.
-    // upgrade-insecure-requests forțează HTTPS.
+    // upgrade-insecure-requests doar în producție (pe localhost rupe form-action 'self'
+    // pentru că browserul upgradează http:// → https:// și 'self' nu mai corespunde).
+    let csp = match std::env::var("APP_ENV").unwrap_or_default().as_str() {
+        "prod" | "production" => {
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
+        }
+        _ => {
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
+        }
+    };
     parts.headers.insert(
         axum::http::header::CONTENT_SECURITY_POLICY,
-        axum::http::HeaderValue::from_static(
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
-        ),
+        axum::http::HeaderValue::from_static(csp),
     );
 
     // 🔒 Anti-clickjacking (OWASP ASVS V4)
