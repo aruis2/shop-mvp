@@ -334,6 +334,7 @@
 | 60 | **Cross-compilation** | Build pentru ARM (S22), x86 (desktop), Cloud Run | ✅ Deja | Script `build-cross.sh` |
 | 61 | **Rustdoc** | Documentație cod | 🟡 Parțial | Comentarii în engleză+română, fără doc testuri |
 | 62 | **Property-based testing** | Testare cu generare automată date | 🔴 Scăzută | `proptest` / `quickcheck` |
+| 63 | **Rust gap conștientizat** | Bug-uri pe care Rust NU le prinde la compilare (IDOR, state machine, race conditions, business logic) — vezi PHILOSOPHY #15 | 🟡 Medie | `LogicFactory::verify_*()` + capability-based state + tranzacții SQL |
 
 ### PostgreSQL — baze de date
 
