@@ -128,9 +128,21 @@ async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result
     let (email_str, password) = parse_body_and_validate(body, |fields| {
         let email = InputFactory::parse_email(get_field(fields, "email")?)?;
         let password = get_field(fields, "password")?;
-        // Password e string simplu, verificăm doar lungimea
+        // 🔒 InputFactory: validare parolă (OWASP ASVS V2.1)
         if password.len() < 8 {
             return Err(InputError::PasswordTooShort);
+        }
+        if password.len() > 128 {
+            return Err(InputError::PasswordTooLong);
+        }
+        if !password.chars().any(|c| c.is_uppercase()) {
+            return Err(InputError::PasswordNoUppercase);
+        }
+        if !password.chars().any(|c| c.is_lowercase()) {
+            return Err(InputError::PasswordNoLowercase);
+        }
+        if !password.chars().any(|c| c.is_ascii_digit()) {
+            return Err(InputError::PasswordNoDigit);
         }
         Ok((email.as_str().to_string(), password.to_string()))
     })?;

@@ -33,6 +33,9 @@ pub enum OrderError {
     #[error("Empty cart")]
     EmptyCart,
 
+    #[error("Stoc insuficient pentru {0}: {1} disponibil, {2} cerut")]
+    InsufficientStock(String, i32, i32),
+
     #[error("Validation error: {0}")]
     Validation(String),
 }

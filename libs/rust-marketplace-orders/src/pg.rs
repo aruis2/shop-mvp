@@ -91,8 +91,40 @@ impl OrderRepo for PgOrderRepo {
             return Err(OrderError::Validation("Name and address are required".into()));
         }
 
+        // 🔒 Tranzacție atomică: verifică stoc → decrementează → creează comandă
+        let mut tx = self.pool.begin().await?;
+
         let total_bani: i64 = cart_items.iter().map(|(_, _, price, qty)| price * *qty as i64).sum();
         let notes = req.notes.unwrap_or_default();
+
+        // Verifică și blochează stocul pentru fiecare produs
+        for (slug, _name, _price, qty) in &cart_items {
+            let row: Option<(i32,)> = sqlx::query_as(
+                r#"SELECT stock_count FROM products WHERE slug = $1 FOR UPDATE"#
+            )
+            .bind(slug)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            match row {
+                Some((stock,)) if stock >= *qty => {
+                    // Decrementează stocul
+                    sqlx::query(
+                        r#"UPDATE products SET stock_count = stock_count - $1 WHERE slug = $2"#
+                    )
+                    .bind(qty)
+                    .bind(slug)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                Some((stock,)) => {
+                    return Err(OrderError::InsufficientStock(slug.clone(), stock, *qty));
+                }
+                None => {
+                    return Err(OrderError::InsufficientStock(slug.clone(), 0, *qty));
+                }
+            }
+        }
 
         let order = sqlx::query_as::<_, Order>(
             r#"
@@ -113,7 +145,7 @@ impl OrderRepo for PgOrderRepo {
         .bind(&req.shipping_address)
         .bind(&req.shipping_phone)
         .bind(&notes)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
         // Inserează itemii
@@ -125,14 +157,15 @@ impl OrderRepo for PgOrderRepo {
                 "#
             )
             .bind(order.id)
-            .bind(slug)
-            .bind(name)
+            .bind(&slug)
+            .bind(&name)
             .bind(price)
             .bind(qty)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         }
 
+        tx.commit().await?;
         Ok(order)
     }
 

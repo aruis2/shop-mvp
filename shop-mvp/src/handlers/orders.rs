@@ -349,9 +349,14 @@ pub async fn success_page(
     headers: axum::http::HeaderMap,
     Query(q): Query<SuccessQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+    // 🔒 Nu mai marcăm plata ca plătită aici — asta face doar Stripe webhook.
+    // Anterior: `update_payment_status(order_id, "paid")` — gaură de securitate:
+    // oricine cu un order_id putea marca comanda ca plătită fără să plătească.
+    // Stripe webhook-ul e singurul care confirmă plata (cu semnătură verificată).
     if let Some(ref order_id_str) = q.order_id {
         if let Ok(order_id) = uuid::Uuid::parse_str(order_id_str) {
-            let _ = s.orders.update_payment_status(order_id, "paid").await;
+            // Doar log, nu actualizăm statusul
+            tracing::info!(target: "orders::success", "Pagină success pentru comanda {}", order_id);
         }
     }
     let data = serde_json::json!({"title": "Comandă reușită! — Shop MVP"});
