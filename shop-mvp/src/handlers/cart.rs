@@ -17,6 +17,7 @@ use crate::types::output::OutputFactory;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
+use crate::types::QueryValidator;
 use crate::debug_warn;
 
 fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> Response {
@@ -49,11 +50,22 @@ pub async fn cart_page(
     headers: axum::http::HeaderMap,
     Query(q): Query<CartQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    let session_id = q.session_id.as_deref()
-        .or_else(|| headers.get("x-session-id").and_then(|v| v.to_str().ok()))
-        .or_else(|| headers.get("cookie").and_then(|v| v.to_str().ok()).and_then(|c| crate::cookie::get_cookie(c, "session_id")))
-        .unwrap_or("anon");
-    let cart = s.cart.get_cart(session_id).await
+    // 🏭 InputFactory: extrage session_id din query → header → cookie
+    let session_id = q.session_id.clone()
+        .or_else(|| {
+            headers.get("x-session-id")
+                .and_then(|v| v.to_str().ok().map(String::from))
+                .map(|s| QueryValidator::session_id(Some(s), "header:x-session-id")
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))
+        })
+        .or_else(|| {
+            headers.get("cookie")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let cart = s.cart.get_cart(&session_id).await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let mut total_bani: i64 = 0;

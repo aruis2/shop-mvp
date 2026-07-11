@@ -158,4 +158,20 @@ impl QueryValidator {
             None => None,
         }
     }
+
+    /// Validează o valoare de header (lungime maximă, fără control chars).
+    pub fn header(val: Option<String>, name: &str, max_len: usize) -> Option<String> {
+        match val {
+            Some(s) if s.len() > max_len => {
+                tracing::warn!(target: "header", "{} prea lung: {} caractere (ignorat)", name, s.len());
+                None
+            }
+            Some(s) if s.chars().any(|c| c.is_control() && c != '\t') => {
+                tracing::warn!(target: "header", "{} conține control chars (ignorat)", name);
+                None
+            }
+            Some(s) => Some(s),
+            None => None,
+        }
+    }
 }

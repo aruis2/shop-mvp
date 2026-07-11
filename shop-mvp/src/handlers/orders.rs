@@ -45,9 +45,10 @@ pub async fn checkout_page(
     Query(q): Query<CheckoutQuery>,
 ) -> Response {
     let sid = q.session_id.clone().or_else(|| {
+        // 🏭 InputFactory: validează header-ul x-session-id
         headers.get("x-session-id")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
+            .and_then(|v| v.to_str().ok().map(String::from))
+            .and_then(|s| QueryValidator::session_id(Some(s), "header:x-session-id"))
     }).or_else(|| {
         headers.get("cookie")
             .and_then(|v| v.to_str().ok())
