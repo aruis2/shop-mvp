@@ -39,6 +39,18 @@ Build pentru 3 target-uri: x86 (desktop/Cloud Run), ARM (S22), aarch64 (Android)
 #### 11. Security in layers (defense in depth)
 Niciun strat nu e de ajuns. Headere → middleware → capability-based → rate limiting → lockout → audit log. Dacă unul cedează, următorul prinde.
 
+#### 12. Git history first — fiecare pas e un commit
+Orice schimbare, oricît de mică, trece prin git. Commituri mici, frecvente, descriptive. Fiecare commit spune o poveste: *ce s-a schimbat și de ce*. Git e sursa unică de adevăr pentru istoricul proiectului. Fără cod pierdut, fără "cum era înainte?". Dacă nu e în git, nu există.
+
+#### 13. Comentarii avansate cu referințe — codul documentează singur de ce
+Fiecare bucată de cod poartă comentarii care explică **de ce** e scris așa, nu doar **ce** face. Comentariile fac referință la:
+- **Standarde**: `// OWASP ASVS V3.3.1`, `// CIS Control 7`, `// WCAG 2.1 2.4.1`
+- **Filosofie**: `// HN Philosophy: zero JS in production`, `// seL4: capability-based`
+- **Rațiune tehnică**: `// i64 intermediar previne overflow`, `// PhantomData = 0 bytes`
+- **Bug-uri prevenite**: `// previne comenzi duplicate (PRG pattern)`, `// previne SQL injection`
+
+Un comentariu bun răspunde la întrebarea pe care și-o pune cineva peste 6 luni cînd citește codul. Fără comentarii de tipul `// i++` — aia se vede și din cod.
+
 ---
 
 ## Articole conexe

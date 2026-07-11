@@ -1,7 +1,12 @@
 // =============================================================================
 // 💰 Price — Preț în bani (1/100 dintr-un leu)
 // =============================================================================
-// GARANTAT: strict pozitiv, maximum 10.000 lei, fără floating point errors
+// Standard: OWASP ASVS V5.1 (Input Validation), stripe API (amount in cents)
+// Filosofie: PHILOSOPHY #6 (Parse, Don't Validate), #8 (Newtype pattern)
+// Bug-uri prevenite: preț negativ, overflow (i32), floating point errors (f64),
+//                    confuzie între lei și bani, preț > 10.000 lei
+// =============================================================================
+// GARANTAT: strict pozitiv, maximum 10.000 lei (1.000.000 bani), overflow detectat
 // =============================================================================
 
 use crate::types::error::InputError;

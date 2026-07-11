@@ -1,5 +1,12 @@
 // =============================================================================
-// 📧 Email — Garantat valid
+// 📧 Email — Garantat valid (Parse, Don't Validate)
+// =============================================================================
+// Standard: OWASP ASVS V5.1 (Input Validation), RFC 5321 (SMTP), RFC 5322 (Format)
+// Filosofie: PHILOSOPHY #6 (Parse, Don't Validate) — tipul garantează validitatea
+// Bug-uri prevenite: email gol, lipsă @, domeniu invalid, caractere interzise, XSS
+// =============================================================================
+// SINGURA cale de a crea un Email: `Email::parse()`. Constructorul e privat.
+// Orice Email care există e GARANTAT valid — zero verificări ulterioare.
 // =============================================================================
 
 use serde::Serialize;
