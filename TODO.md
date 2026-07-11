@@ -65,7 +65,81 @@ Rust ca limbaj acoperă nativ sau prin tooling standard următoarele cerințe di
 | Geiger counter (unsafe audit) | CIS Control 16 | `cargo geiger` | ~15min |
 | PGO optimization | NIST SP 800-207 | `-C profile-generate` | ~2h
 
-### 1.3 Securitate suplimentară
+### 1.4 Securitate — IDOR (Insecure Direct Object Reference)
+
+**IDOR** = Atacatorul modifică un ID (ex: `order_id=123` → `order_id=124`) și accesează datele altui utilizator.
+OWASP API Top 10 #1 (Broken Object Level Authorization).
+
+| Endpoint | Risc | Verificare proprietate? | Status |
+|---|---|---|---|
+| `GET /orders` | Userul A vede comenzile userului B | `get_orders_by_user(user.id)` — da, filtrat | ✅ |
+| `POST /order/{id}/pay` | Userul A plătește comanda userului B | Verificare `order.user_id == user.id`? | ⚠️ **De verificat** |
+| `POST /order/{id}/status` (admin) | Admin schimbă statusul oricărei comenzi | Doar admin — corect | ✅ |
+| `GET /account/export` | Userul A exportă datele userului B | `verify_token()` + `delete_user(user.id)` | ✅ |
+| `POST /cart/add` | Adaugi produse în coșul altcuiva | Session ID din cookie — corect | ✅ |
+| `GET /admin/product/{slug}/edit` | Admin editează orice produs | Doar admin | ✅ |
+| `DELETE /admin/product/{slug}` | Admin șterge orice produs | Doar admin | ✅ |
+
+#### 🔍 IDOR — Insecure Direct Object Reference (OWASP API Top 10 #1)
+
+**Ce este:** Atacatorul modifică un ID în request (ex: `GET /order/123` → `GET /order/124`) și accesează datele altui utilizator. ID-ul e perfect valid — problema e **lipsa verificării de proprietate**.
+
+**Exemplu concret:** Dacă userul A trimite `POST /order/ord-{uuid}/pay` cu un `order_id` care nu îi aparține, plata merge în contul altcuiva.
+
+**Cum se rezolvă:** În fiecare handler cu ID, verifici că obiectul aparține userului:
+```rust
+let order = s.orders.get_by_id(&order_id).await?;
+if order.user_id != current_user.id {
+    return Err("Nu poți accesa această comandă");
+}
+```
+
+| Endpoint | Risc | Status |
+|---|---|---|
+| `GET /order/{id}/pay` | Userul A plătește comanda userului B | ⚠️ De verificat |
+| `GET /orders` | Userul A vede comenzile userului B | ✅ Filtrat în query |
+| `GET /admin/order/{id}/status` | Admin modifică comanda greșită | ⚠️ De verificat |
+| `GET /admin/product/{slug}/edit` | Admin editează produs greșit | ✅ `slug` e în URL, vizibil |
+
+- [ ] Audit: verifică fiecare endpoint cu `{id}` / `{slug}` că **proprietatea** e verificată
+- [ ] `orders.rs` — în `order_pay()`, verifică `order.user_id == current_user.id`
+- [ ] `orders.rs` — în `order_pay()`, verifică `payment_status != "paid"` (idempotency)
+- [ ] `admin.rs` — în `admin_order_update_status()`, verifică că userul e admin
+- [ ] Teste: încearcă să accesezi comanda altui user cu token diferit
+- [ ] Teste: încearcă să plătești aceeași comandă de două ori
+- [ ] Documentează modelul de autorizare per-endpoint în TRUST-BOUNDARY.md
+
+#### 🏁 Race conditions (OWASP API Top 10 #4)
+
+**Ce este:** Doi utilizatori cumpără simultan ultimul produs. Ambele requesturi văd `stock_count=1`, ambele trec validarea, ambele scad stocul → stoc final = -1.
+
+**Cum se rezolvă:** PostgreSQL row-level locking (`SELECT ... FOR UPDATE`) în aceeași tranzacție.
+
+- [ ] Audit: toate operațiile care citesc + scriu în același handler sînt în aceeași tranzacție?
+- [ ] `cart.rs` — `add_item()`: tranzacție cu `FOR UPDATE` pe stoc?
+- [ ] `orders.rs` — `checkout_handler()`: creează comanda, scade stocul, golește coșul — e atomic?
+- [ ] Teste: simulare concurență (2 requesturi simultane pentru ultimul produs)
+- [ ] Documentează modelul de concurență în PHILOSOPHY.md
+
+#### 🎯 State machine (OWASP ASVS V2, V3)
+
+**Ce este:** O comandă poate fi plătită doar o dată. Un refund poate fi cerut doar după plată. Un produs e livrat doar după expediere. Fără verificări, poți plăti de două ori sau returna un produs nelivrat.
+
+**Cum se rezolvă:** Verificare explicită în fiecare handler:
+```rust
+if order.payment_status == "paid" {
+    return Err("Comanda e deja plătită");
+}
+```
+
+- [ ] Audit: toate tranzițiile de stare au verificări?
+- [ ] `admin.rs` — previne tranziții invalide (ex: delivered → confirmed)
+- [ ] `orders.rs` — previne plata dublă
+- [ ] `orders.rs` — Stripe webhook: idempotency key
+- [ ] Teste: încearcă toate tranzițiile invalide
+- [ ] Documentează diagrama de stări în TRUST-BOUNDARY.md
+
+### 1.5 Securitate suplimentară (tooling)
 - [ ] `cargo deny` — blocare dependințe cu vulnerabilități + licențe interzise
 - [ ] `cargo tarpaulin` — code coverage (minim 80%)
 - [ ] `cargo fuzz` — fuzzing pe InputFactory
