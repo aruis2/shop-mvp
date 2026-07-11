@@ -75,6 +75,15 @@ pub trait OrderRepo: Send + Sync {
 
     /// Toate comenzile (pentru admin)
     async fn get_all_orders(&self, limit: i64, offset: i64) -> Result<(Vec<Order>, i64), OrderError>;
+
+    /// 🔒 Idempotency: creează tabela
+    async fn migrate_idempotency(&self) -> Result<(), OrderError>;
+
+    /// 🔒 Idempotency: verifică dacă o cheie există deja (returnează rezultatul)
+    async fn check_idempotency(&self, key: &str) -> Result<Option<String>, OrderError>;
+
+    /// 🔒 Idempotency: stochează rezultatul pentru o cheie (INSERT ON CONFLICT DO NOTHING)
+    async fn store_idempotency(&self, key: &str, result: &str) -> Result<(), OrderError>;
 }
 
 // ============================================================================

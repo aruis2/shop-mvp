@@ -143,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
 
     let orders: Arc<dyn rust_marketplace_orders::OrderRepo> = Arc::new(PgOrderRepo::new(pool.clone()));
     orders.migrate().await?;
+    orders.migrate_idempotency().await?;
     tracing::info!("🧱 Comenzi asamblat");
 
     // Stripe cu error boundary (retry + timeout)
@@ -251,6 +252,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(shop_routes.clone())
         .nest("/shop", shop_routes)
         .nest_service("/static", ServeDir::new("shop-mvp/static"))
+        .layer(axum::middleware::from_fn(csrf_middleware))
         .layer(axum::middleware::from_fn(session_timeout))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(axum::middleware::from_fn(strip_trailing_slash))
@@ -381,63 +383,56 @@ async fn session_timeout(
 }
 
 // ============================================================================
-// 🔒 ASVS L2: CSRF Protection
+// 🔒 ASVS L2: CSRF Protection — verificare Origin header
 // ============================================================================
+// Pentru request-uri POST, verificăm că header-ul `Origin` sau `Referer`
+// corespunde site-ului nostru. HTMX adaugă automat `HX-Request` header,
+// dar pentru API clients e necesară verificarea explicită.
+//
+// Aceasta e o mitigare CSRF simplă și eficientă — nu necesită token-uri.
 
-/// Generează un token CSRF (UUID v4) și îl stochează într-un cookie.
-/// Verificat la fiecare POST pe rute sensibile.
-fn generate_csrf_token() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
+/// CSRF middleware: verifică origin la POST-uri
+async fn csrf_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> impl axum::response::IntoResponse {
+    let method = req.method().clone();
+    let is_post = method == axum::http::Method::POST
+        || method == axum::http::Method::PUT
+        || method == axum::http::Method::DELETE
+        || method == axum::http::Method::PATCH;
 
-/// Setează cookie-ul CSRF în răspuns
-fn set_csrf_cookie(response: &mut axum::response::Response, token: &str) {
-    if let Ok(val) = axum::http::HeaderValue::from_str(
-        &format!("csrf_token={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600", token)
-    ) {
-        response.headers_mut().append(axum::http::header::SET_COOKIE, val);
+    if is_post {
+        // HTMX adaugă HX-Request → skip CSRF check (protecție built-in)
+        let is_htmx = req.headers().get("hx-request").is_some();
+        if !is_htmx {
+            let origin = req.headers().get("origin")
+                .and_then(|v| v.to_str().ok());
+            let referer = req.headers().get("referer")
+                .and_then(|v| v.to_str().ok());
+            let site_url = std::env::var("SITE_URL").unwrap_or_default();
+
+            let origin_ok = origin.map_or(false, |o| o.starts_with(&site_url) || o.contains("://localhost"));
+            let referer_ok = referer.map_or(false, |r| r.starts_with(&site_url) || r.contains("://localhost"));
+
+            if !origin_ok && !referer_ok {
+                tracing::warn!(target: "csrf", "CSRF respins: method={} origin={:?} referer={:?}",
+                    method, origin, referer);
+                return (axum::http::StatusCode::FORBIDDEN, "CSRF check failed").into_response();
+            }
+        }
     }
+
+    next.run(req).await
 }
 
-/// Verifică token-ul CSRF dintr-un formular contra cookie-ului (constant-time)
-fn verify_csrf(form_token: &str, cookie_token: &str) -> bool {
-    form_token.len() == cookie_token.len()
-        && form_token.bytes().zip(cookie_token.bytes()).all(|(a, b)| a == b)
-}
-
-/// Extrage token-ul CSRF din cookie-uri
-fn extract_csrf_token(cookies: &str) -> Option<String> {
-    crate::cookie::get_cookie(cookies, "csrf_token").map(|s| s.to_string())
-}
-
-// 🔒 ASVS L2: Idempotency for payments
+// 🔒 ASVS L2: Idempotency — mutată în DB (rust-marketplace-orders),
+//              nu mai e nevoie de cache in-memory.
 // ============================================================================
-
-/// Urmărește idempotency keys pentru plăți (previne dublarea plăților).
-static IDEMPOTENCY_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
-    std::sync::OnceLock::new();
-
-fn get_idempotency_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
-    IDEMPOTENCY_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-/// Generează o cheie de idempotență pentru o plată pe baza order_id.
-fn generate_idempotency_key(order_id: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    order_id.hash(&mut hasher);
-    format!("idem_{:x}", hasher.finish())
-}
-
-/// Verifică dacă o plată a fost deja procesată.
-pub fn check_idempotency(key: &str) -> Option<String> {
-    get_idempotency_cache().lock().expect("idempotency Mutex poisoned").get(key).cloned()
-}
-
-/// Stochează rezultatul idempotent al unei plăți.
-pub fn store_idempotency_result(key: &str, result: &str) {
-    get_idempotency_cache().lock().expect("idempotency Mutex poisoned").insert(key.to_string(), result.to_string());
-}
+// Funcțiile anterioare (check_idempotency, store_idempotency_result) au fost
+// înlocuite cu OrderRepo::check_idempotency() / store_idempotency()
+// care folosesc tabela `idempotency_cache` în PostgreSQL.
+// Beneficiu: cache-ul supraviețuiește restarturilor serverului.
 
 // 🔒 ASVS L2: Account lockout middleware
 // ============================================================================

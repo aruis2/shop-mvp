@@ -465,16 +465,22 @@ pub async fn stripe_webhook(
             .unwrap_or("");
 
         if let Ok(order_id) = uuid::Uuid::parse_str(order_id_str) {
-            // Idempotency check: verifică dacă plata a fost deja procesată
+            // 🔒 Idempotency check în DB — supraviețuiește restarturilor
             let idem_key = format!("stripe_webhook_{}", session_id);
-            if crate::check_idempotency(&idem_key).is_some() {
-                tracing::warn!(target: "stripe::webhook", "Webhook duplicat ignorat: {session_id}");
-                return (axum::http::StatusCode::OK, "Already processed").into_response();
+            match s.orders.check_idempotency(&idem_key).await {
+                Ok(Some(_)) => {
+                    tracing::warn!(target: "stripe::webhook", "Webhook duplicat ignorat: {session_id}");
+                    return (axum::http::StatusCode::OK, "Already processed").into_response();
+                }
+                Ok(None) => {} // continuă
+                Err(e) => {
+                    tracing::error!(target: "stripe::webhook", "Idempotency check eșuat: {e}");
+                }
             }
 
             match s.orders.update_payment_status(order_id, "paid").await {
                 Ok(_) => {
-                    crate::store_idempotency_result(&idem_key, "paid");
+                    let _ = s.orders.store_idempotency(&idem_key, "paid").await;
                     tracing::info!(target: "stripe::webhook", "✅ Plată confirmată pentru comanda {order_id} (SCA: {})",
                         session["payment_intent"]["payment_method_types"].as_array().map(|_| "ok").unwrap_or("n/a"));
                     (axum::http::StatusCode::OK, "OK").into_response()

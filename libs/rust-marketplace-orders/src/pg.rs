@@ -313,4 +313,41 @@ impl OrderRepo for PgOrderRepo {
 
         Ok((orders, total))
     }
+
+    // 🔒 Idempotency DB-backed — supraviețuiește restarturilor
+    async fn migrate_idempotency(&self) -> Result<(), OrderError> {
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS idempotency_cache (
+                key TEXT PRIMARY KEY,
+                result TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )"#
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn check_idempotency(&self, key: &str) -> Result<Option<String>, OrderError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT result FROM idempotency_cache WHERE key = $1"
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    async fn store_idempotency(&self, key: &str, result: &str) -> Result<(), OrderError> {
+        sqlx::query(
+            r#"INSERT INTO idempotency_cache (key, result)
+               VALUES ($1, $2)
+               ON CONFLICT (key) DO NOTHING"#
+        )
+        .bind(key)
+        .bind(result)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
