@@ -4,7 +4,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::Html,
 };
 use serde::Deserialize;
@@ -14,6 +14,7 @@ use tracing;
 use crate::state::ProductState;
 use crate::render::{RenderService, DetectBasePath};
 use crate::handlers::auth;
+use crate::types::InputFactory;
 
 pub const PRODUCTS_PER_PAGE: i64 = 24;
 
@@ -100,8 +101,28 @@ pub async fn search_page(
     headers: HeaderMap,
     Query(q): Query<SearchQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+    // 🏭 InputFactory: validează query-ul de căutare (permitem și gol)
+    let query_str = if q.q.is_empty() {
+        String::new()
+    } else {
+        match InputFactory::parse_search(&q.q) {
+            Ok(sq) => sq.as_str().to_string(),
+            Err(_) => return Err((StatusCode::BAD_REQUEST, "Query invalid".to_string())),
+        }
+    };
+    if query_str.is_empty() {
+        let data = serde_json::json!({
+            "title": "Căutare — Shop MVP",
+            "products": [],
+            "total": 0,
+            "page": 1,
+            "total_pages": 1,
+            "query": "",
+        });
+        return render_or_err_json(&s.renderer, "products/search.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await;
+    }
     let page = q.page.unwrap_or(1).max(1);
-    let (products, total) = s.products.search_products(&q.q, page, PRODUCTS_PER_PAGE)
+    let (products, total) = s.products.search_products(&query_str, page, PRODUCTS_PER_PAGE)
         .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let products_json: Vec<serde_json::Value> = products.iter().map(|p| {
@@ -116,12 +137,12 @@ pub async fn search_page(
     let total_pages = ((total as f64) / PRODUCTS_PER_PAGE as f64).ceil() as i64;
 
     let data = serde_json::json!({
-        "title": format!("Căutare: {} — Shop MVP", q.q),
+        "title": format!("Căutare: {} — Shop MVP", query_str),
         "products": products_json,
         "total": total,
         "page": page,
         "total_pages": total_pages,
-        "query": q.q,
+        "query": query_str,
     });
     render_or_err_json(&s.renderer, "products/search.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
