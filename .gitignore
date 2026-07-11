@@ -14,4 +14,3 @@ secrets/
 .vscode/
 *.swp
 shop-mvp/tests/node_modules/
-t*
