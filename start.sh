@@ -13,6 +13,10 @@ LOGFILE="logs/run-dev.log"
 case "${1:-start}" in
     start)
         mkdir -p logs
+        # 🔨 Construiește CSS static (zero JS)
+        if command -v npx &>/dev/null && [ -f package.json ]; then
+            npx @tailwindcss/cli -i shop-mvp/static/tailwind-input.css -o shop-mvp/static/style.css --minify 2>/dev/null
+        fi
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
             echo "⚠️  Serverul rulează deja (PID $(cat "$PIDFILE")). Folosește ./start.sh stop"
             exit 1

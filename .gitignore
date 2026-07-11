@@ -14,3 +14,5 @@ secrets/
 .vscode/
 *.swp
 shop-mvp/tests/node_modules/
+node_modules/
+shop-mvp/static/tailwind-input.css

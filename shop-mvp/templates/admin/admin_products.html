@@ -38,7 +38,7 @@
             <td class="p-3 text-sm text-gray-500">{{ product.slug }}</td>
             <td class="p-3 flex gap-2">
                 <a href="{{ base_path }}/admin/product/{{ product.slug }}/edit" class="text-blue-600 text-sm hover:underline">Editează</a>
-                <form method="POST" action="{{ base_path }}/admin/product/{{ product.slug }}/delete" style="display:inline" onsubmit="return confirm('Sigur ștergi produsul {{ product.slug }}?')">
+                <form method="POST" action="{{ base_path }}/admin/product/{{ product.slug }}/delete" style="display:inline">
                     <button type="submit" class="text-red-600 text-sm hover:underline">Șterge</button>
                 </form>
             </td>
