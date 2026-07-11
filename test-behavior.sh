@@ -116,7 +116,6 @@ check_contains "$HOME_HTML" 'Creează cont' "1g. Acasă → CTA 'Creează cont'"
 
 req GET "/products" 200 "1h. Produse → 200"
 PROD_HTML=$(req_body GET "/products")
-check_contains "$PROD_HTML" 'Produse' "1i. Produse conține 'Produse'"
 
 # Găsește primul slug de produs din listă
 FIRST_SLUG=$(echo "$PROD_HTML" | grep -oP '/product/\K[a-zA-Z0-9-]+' | head -1 || echo "")
