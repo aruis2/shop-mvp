@@ -674,7 +674,7 @@ mod tests {
         let tera = setup_tera();
         let mut ctx = Context::new();
         ctx.insert("base_path", "");
-        render_template(&tera, "login.html", &ctx);
+        render_template(&tera, "auth/login.html", &ctx);
     }
 
     #[test]
@@ -682,7 +682,7 @@ mod tests {
         let tera = setup_tera();
         let mut ctx = Context::new();
         ctx.insert("base_path", "");
-        render_template(&tera, "signup.html", &ctx);
+        render_template(&tera, "auth/signup.html", &ctx);
     }
 
     #[test]
@@ -691,12 +691,14 @@ mod tests {
         let mut ctx = Context::new();
         ctx.insert("base_path", "");
         ctx.insert("products", &json!([
-            {"name":"Test","brand":"B","slug":"t","price_lei":"99.99","image_url":null}
+            {"name":"Test","brand":"B","slug":"t","price_lei":"99.99","image_url":null,"stock_count":10}
         ]));
         ctx.insert("total", &1i64);
         ctx.insert("page", &1i64);
         ctx.insert("total_pages", &1i64);
-        render_template(&tera, "products.html", &ctx);
+        ctx.insert("categories", &json!([]));
+        ctx.insert("category_id", &serde_json::Value::Null);
+        render_template(&tera, "products/products.html", &ctx);
     }
 
     #[test]
@@ -711,7 +713,7 @@ mod tests {
         ctx.insert("total", &1i64);
         ctx.insert("page", &1i64);
         ctx.insert("total_pages", &1i64);
-        render_template(&tera, "search.html", &ctx);
+        render_template(&tera, "products/search.html", &ctx);
     }
 
     #[test]
@@ -724,7 +726,7 @@ mod tests {
             "image_url":null,
             "specs":[{"key":"Culoare","value":"Albastru"}]
         }));
-        render_template(&tera, "product_detail.html", &ctx);
+        render_template(&tera, "products/product_detail.html", &ctx);
     }
 
     #[test]
@@ -737,7 +739,7 @@ mod tests {
              "qty":2,"subtotal_lei":"199.98","id":"uuid"}
         ]));
         ctx.insert("total_lei", "199.98");
-        render_template(&tera, "cart.html", &ctx);
+        render_template(&tera, "cart/cart.html", &ctx);
     }
 
     #[test]
@@ -748,7 +750,7 @@ mod tests {
         ctx.insert("total_lei", "199.98");
         ctx.insert("session_id", "sess_123");
         ctx.insert("item_count", &2i64);
-        render_template(&tera, "checkout.html", &ctx);
+        render_template(&tera, "orders/checkout.html", &ctx);
     }
 
     #[test]
@@ -761,7 +763,9 @@ mod tests {
              "payment_status":"unpaid","total_lei":"199.98",
              "shipping_name":"Ion","shipping_address":"Str. X"}
         ]));
-        render_template(&tera, "orders.html", &ctx);
+        ctx.insert("total_pages", &1i64);
+        ctx.insert("page", &1i64);
+        render_template(&tera, "orders/orders.html", &ctx);
     }
 
     #[test]
@@ -769,7 +773,7 @@ mod tests {
         let tera = setup_tera();
         let mut ctx = Context::new();
         ctx.insert("base_path", "");
-        render_template(&tera, "success.html", &ctx);
+        render_template(&tera, "orders/success.html", &ctx);
     }
 
     #[test]
@@ -778,10 +782,12 @@ mod tests {
         let mut ctx = Context::new();
         ctx.insert("base_path", "");
         ctx.insert("products", &json!([
-            {"brand":"B","name":"Test","slug":"t","price_lei":"99.99"}
+            {"brand":"B","name":"Test","slug":"t","price_lei":"99.99","stock_count":10}
         ]));
         ctx.insert("total", &1i64);
-        render_template(&tera, "admin_products.html", &ctx);
+        ctx.insert("page", &1i64);
+        ctx.insert("total_pages", &1i64);
+        render_template(&tera, "admin/admin_products.html", &ctx);
     }
 
     #[test]
@@ -790,7 +796,7 @@ mod tests {
         let mut ctx = Context::new();
         ctx.insert("base_path", "");
         ctx.insert("product", &serde_json::Value::Null);
-        render_template(&tera, "admin_product_form.html", &ctx);
+        render_template(&tera, "admin/admin_product_form.html", &ctx);
     }
 
     #[test]
@@ -801,7 +807,7 @@ mod tests {
         ctx.insert("product", &json!({
             "brand":"B","name":"Test","slug":"t","price_new":9999,"price_lei":"99.99"
         }));
-        render_template(&tera, "admin_product_form.html", &ctx);
+        render_template(&tera, "admin/admin_product_form.html", &ctx);
     }
 
     #[test]
@@ -815,7 +821,9 @@ mod tests {
              "shipping_name":"Ion","shipping_address":"Str. X","shipping_phone":"0722..."}
         ]));
         ctx.insert("total", &1i64);
-        render_template(&tera, "admin_orders.html", &ctx);
+        ctx.insert("page", &1i64);
+        ctx.insert("total_pages", &1i64);
+        render_template(&tera, "admin/admin_orders.html", &ctx);
     }
 }
 

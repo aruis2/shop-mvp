@@ -86,6 +86,10 @@ impl RenderService {
     /// Redă un template cu un context dat.
     /// `base_path` e injectat automat în context.
     /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
+    ///
+    /// Redă un template cu un context dat.
+    /// `base_path` e injectat automat în context.
+    /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
     pub fn render(&self, template: &str, ctx: &Context, base_path: &str, partial: bool) -> Result<Html<String>, String> {
         let mut ctx = ctx.clone();
         ctx.insert("base_path", base_path);
