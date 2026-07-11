@@ -196,7 +196,7 @@ pub async fn signup_handler(
         debug_warn!(target: "auth::ratelimit", "Rate limit signup de la IP={}", ip);
         let err_enc = "Prea multe încercări. Încearcă din nou peste 1 minut.";
         let dest = format!("{}/signup?error={}", bp, err_enc.replace(' ', "%20"));
-        return (StatusCode::FOUND, [("Location", dest)]).into_response();
+        return safe_redirect(&dest, &bp);
     }
     let referer = headers.get("referer").and_then(|v| v.to_str().ok());
     let redirect = extract_redirect(&body);
@@ -215,7 +215,7 @@ pub async fn signup_handler(
             } else {
                 format!("{}/signup?error={}&redirect={}", bp, err_enc, redirect)
             };
-            (StatusCode::FOUND, [("Location", dest)]).into_response()
+            safe_redirect(&dest, &bp)
         }
     }
 }
@@ -280,6 +280,13 @@ pub async fn inject_user_ctx_json(
     }
 }
 
+/// 🔒 Redirect sigur — URL-ul trece prin OutputFactory::safe_redirect_url
+fn safe_redirect(dest: &str, _bp: &str) -> Response {
+    let safe = OutputFactory::safe_redirect_url(dest, "/")
+        .unwrap_or_else(|| "/".to_string());
+    (StatusCode::FOUND, [("Location", safe)]).into_response()
+}
+
 fn redirect_html(url: &str) -> Html<String> {
     // 🔒 OutputFactory: validează URL-ul, previne XSS (javascript:) și open redirect
     let safe_url = OutputFactory::safe_redirect_url(url, "/")
@@ -339,18 +346,22 @@ pub async fn logout_handler(
         .map(extract_path_from_url)
         .unwrap_or_else(|| "/".to_string());
     
-    debug_log!(target: "auth::logout", "logout: redirect={:?} -> path={}", q.redirect, current_path);
+    // 🔒 OutputFactory: validează URL-ul (previne open redirect)
+    let safe_path = OutputFactory::safe_redirect_url(&current_path, "/")
+        .unwrap_or_else(|| "/".to_string());
+    
+    debug_log!(target: "auth::logout", "logout: redirect={:?} -> path={} safe={}", q.redirect, current_path, safe_path);
     
     let mut resp = if is_htmx {
         let mut r = (StatusCode::OK, Html(String::new())).into_response();
+        let header_val = OutputFactory::safe_header_value(&safe_path);
         r.headers_mut().insert(
             axum::http::HeaderName::from_static("hx-redirect"),
-            axum::http::HeaderValue::from_str(&current_path).unwrap(),
+            axum::http::HeaderValue::from_str(&header_val).unwrap(),
         );
         r
     } else {
-        // HTTP 302 redirect — Chrome procesează Set-Cookie corect înainte să urmeze redirect-ul
-        let r = (StatusCode::FOUND, [("Location", current_path.as_str())]).into_response();
+        let r = (StatusCode::FOUND, [("Location", safe_path.as_str())]).into_response();
         r
     };
     resp.headers_mut().insert(
@@ -371,7 +382,7 @@ pub async fn login_handler(
         debug_warn!(target: "auth::ratelimit", "Rate limit login de la IP={}", ip);
         let err_enc = "Prea multe încercări. Încearcă din nou peste 1 minut.";
         let dest = format!("{}/login?error={}", bp, err_enc.replace(' ', "%20"));
-        return (StatusCode::FOUND, [("Location", dest)]).into_response();
+        return safe_redirect(&dest, &bp);
     }
     
     // 🔒 ASVS L2: Account lockout - verifică dacă emailul e blocat
@@ -380,7 +391,7 @@ pub async fn login_handler(
         if let Err(msg) = crate::check_lockout(email) {
             debug_warn!(target: "auth::lockout", "Cont blocat: {}", email);
             let dest = format!("{}/login?error={}", bp, msg.replace(' ', "%20"));
-            return (StatusCode::FOUND, [("Location", dest)]).into_response();
+            return safe_redirect(&dest, &bp);
         }
     }
     
@@ -407,7 +418,7 @@ pub async fn login_handler(
             } else {
                 format!("{}/login?error={}&redirect={}", bp, err_enc, redirect)
             };
-            (StatusCode::FOUND, [("Location", dest)]).into_response()
+            safe_redirect(&dest, &bp)
         }
     }
 }
@@ -437,32 +448,35 @@ pub async fn delete_account_handler(
         .and_then(|c| crate::cookie::get_cookie(c, "token"))
     {
         Some(t) => t.to_string(),
-        None => return (StatusCode::FOUND, [
-            ("Location", format!("{}/login?error=Autentifică-te+întâi", bp)),
-        ]).into_response(),
+        None => {
+            let dest = format!("{}/login?error=Autentifică-te+întâi", bp);
+            return safe_redirect(&dest, &bp);
+        }
     };
 
     match s.auth.verify_token(&token).await {
         Ok(user) => {
-            // Anonimizează email și nume, păstrează ID-ul pentru comenzi
             match s.auth.delete_user(user.id).await {
                 Ok(_) => {
-                    (StatusCode::FOUND, [
-                        ("Location", format!("{}/?success=Cont+șters", bp)),
-                        ("Set-Cookie", "token=; Max-Age=0; Path=/".to_string()),
-                    ]).into_response()
+                    let dest = format!("{}/?success=Cont+șters", bp);
+                    let mut resp = safe_redirect(&dest, &bp);
+                    resp.headers_mut().insert(
+                        axum::http::header::HeaderName::from_static("set-cookie"),
+                        axum::http::HeaderValue::from_static("token=; Max-Age=0; Path=/"),
+                    );
+                    resp
                 }
                 Err(e) => {
                     let err_msg = e.to_string().replace(' ', "+");
-                    (StatusCode::FOUND, [
-                        ("Location", format!("{}/me?error=Eroare+la+ștergere:+{}", bp, err_msg)),
-                    ]).into_response()
+                    let dest = format!("{}/me?error=Eroare+la+ștergere:+{}", bp, err_msg);
+                    safe_redirect(&dest, &bp)
                 }
             }
         }
-        Err(_) => (StatusCode::FOUND, [
-            ("Location", format!("{}/login?error=Token+invalid", bp)),
-        ]).into_response(),
+        Err(_) => {
+            let dest = format!("{}/login?error=Token+invalid", bp);
+            safe_redirect(&dest, &bp)
+        },
     }
 }
 

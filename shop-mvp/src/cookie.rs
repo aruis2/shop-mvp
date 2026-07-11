@@ -1,6 +1,9 @@
 // =============================================================================
 // 🍪 Cookie helper — fără dependințe externe
 // =============================================================================
+// 🔒 Toate cookie-urile trec prin OutputFactory::safe_cookie_value()
+
+use crate::types::output::OutputFactory;
 
 /// Citește un cookie după nume din header-ul `Cookie`
 pub fn get_cookie<'a>(cookie_header: &'a str, name: &str) -> Option<&'a str> {
@@ -13,10 +16,11 @@ pub fn get_cookie<'a>(cookie_header: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Creează un header `Set-Cookie`
+/// Creează un header `Set-Cookie` — valoarea e sanitizată cu OutputFactory
 pub fn set_cookie(name: &str, value: &str, max_age_secs: i64) -> String {
+    let safe_value = OutputFactory::safe_cookie_value(value);
     format!(
-        "{name}={value}; HttpOnly; Path=/; SameSite=Lax; Max-Age={max_age_secs}"
+        "{name}={safe_value}; HttpOnly; Path=/; SameSite=Lax; Max-Age={max_age_secs}"
     )
 }
 
