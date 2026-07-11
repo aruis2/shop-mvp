@@ -11,11 +11,10 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tera::Context;
 
 use crate::state::AdminState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err;
+use crate::handlers::products::render_or_err_json;
 use crate::types::output::OutputFactory;
 use crate::debug_warn;
 
@@ -121,14 +120,15 @@ pub async fn admin_products_page(
         })
     }).collect();
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Admin — Produse");
-    ctx.insert("products", &products_json);
-    ctx.insert("total", &total);
-    ctx.insert("page", &page);
-    ctx.insert("total_pages", &total_pages);
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "admin/admin_products.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Admin — Produse",
+        "products": products_json,
+        "total": total,
+        "page": page,
+        "total_pages": total_pages,
+    });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "admin/admin_products.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_new_page(
@@ -141,11 +141,12 @@ pub async fn admin_product_new_page(
         Ok(u) => u,
         Err(html) => return Ok(html),
     };
-    let mut ctx = Context::new();
-    ctx.insert("title", "Adaugă produs — Admin");
-    ctx.insert("product", &serde_json::Value::Null);
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "admin/admin_product_form.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Adaugă produs — Admin",
+        "product": serde_json::Value::Null,
+    });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 #[derive(Deserialize)]
@@ -212,15 +213,16 @@ pub async fn admin_product_edit_page(
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((axum::http::StatusCode::NOT_FOUND, "Produs negăsit".into()))?;
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Editează produs — Admin");
-    ctx.insert("product", &serde_json::json!({
-        "brand": product.brand, "name": product.name, "slug": product.slug,
-        "price_new": product.price_new,
-        "price_lei": product.price_new.map(|v| format!("{:.2}", v as f64 / 100.0)),
-    }));
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "admin/admin_product_form.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Editează produs — Admin",
+        "product": {
+            "brand": product.brand, "name": product.name, "slug": product.slug,
+            "price_new": product.price_new,
+            "price_lei": product.price_new.map(|v| format!("{:.2}", v as f64 / 100.0)),
+        },
+    });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 #[derive(Deserialize)]
@@ -330,14 +332,15 @@ pub async fn admin_orders_page(
         })
     }).collect();
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Admin — Comenzi");
-    ctx.insert("orders", &orders_json);
-    ctx.insert("total", &total);
-    ctx.insert("page", &page);
-    ctx.insert("total_pages", &total_pages);
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "admin/admin_orders.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Admin — Comenzi",
+        "orders": orders_json,
+        "total": total,
+        "page": page,
+        "total_pages": total_pages,
+    });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "admin/admin_orders.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 #[derive(Deserialize)]
@@ -463,9 +466,10 @@ pub async fn admin_logs(
     let log = crate::get_query_log();
     let lines: Vec<String> = log.iter().rev().take(100).cloned().collect();
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Admin — Loguri DB");
-    ctx.insert("lines", &lines);
-    ctx.insert("total", &crate::get_query_count());
-    render_or_err(&s.renderer, "admin/admin_logs.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({
+        "title": "Admin — Loguri DB",
+        "lines": lines,
+        "total": crate::get_query_count(),
+    });
+    render_or_err_json(&s.renderer, "admin/admin_logs.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

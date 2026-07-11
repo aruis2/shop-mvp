@@ -12,6 +12,7 @@ use axum::{
     response::Html,
 };
 use tera::{Context, Tera};
+use crate::types::output::OutputFactory;
 
 /// Extractor care calculează automat base_path din OriginalUri.
 /// Funcționează indiferent de adâncimea prefixului:
@@ -83,16 +84,35 @@ impl RenderService {
         Self { tera: Arc::new(tera) }
     }
 
-    /// Redă un template cu un context dat.
+    /// Redă un template cu un context Tera (clasic).
     /// `base_path` e injectat automat în context.
     /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
     ///
-    /// Redă un template cu un context dat.
-    /// `base_path` e injectat automat în context.
-    /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
+    /// 🔒 NOTĂ: Acest metodă NU sanitarizează contextul automat.
+    ///     Pentru sanitizare automată, folosește `render_json()`.
     pub fn render(&self, template: &str, ctx: &Context, base_path: &str, partial: bool) -> Result<Html<String>, String> {
         let mut ctx = ctx.clone();
         ctx.insert("base_path", base_path);
+        self.render_internal(template, ctx, base_path, partial)
+    }
+
+    /// Redă un template cu date JSON, cu sanitizare automată OutputFactory.
+    /// 🔒 Toate string-urile din `data` trec prin html_encode înainte de Tera.
+    /// `base_path` e injectat automat în context.
+    /// `partial=true` → doar conținutul (HTMX); `false` → pagină completă cu layout.
+    pub fn render_json(&self, template: &str, data: &serde_json::Value, base_path: &str, partial: bool) -> Result<Html<String>, String> {
+        // 🔒 OutputFactory: walk recursiv, html_encode pe toate string-urile
+        let sanitized = OutputFactory::sanitize_context(data);
+        let ctx = Context::from_serialize(&sanitized)
+            .map_err(|e| format!("Context sanitization error: {e}"))?;
+        let mut ctx = ctx;
+        ctx.insert("base_path", base_path);
+        self.render_internal(template, ctx, base_path, partial)
+    }
+
+    /// Intern: render propriu-zis + layout wrapping
+    fn render_internal(&self, template: &str, ctx: Context, base_path: &str, partial: bool) -> Result<Html<String>, String> {
+        let ctx = ctx;
 
         // Render the content template
         let content = self.tera
@@ -100,18 +120,15 @@ impl RenderService {
             .map_err(|e| format!("Render error în '{template}': {e}"))?;
 
         if partial {
-            // HTMX: doar partial-ul, fără <html>/<nav>/<footer>
             Ok(Html(content))
         } else {
             // Full page: încorporăm în layout
             let mut page_ctx = Context::new();
             page_ctx.insert("base_path", base_path);
             page_ctx.insert("content", &content);
-            // Titlu din context (setat de handler) sau default
             let title = ctx.get("title").and_then(|v| v.as_str()).unwrap_or("Shop MVP");
             page_ctx.insert("title", title);
             page_ctx.insert("head", "");
-            // Moștenim user info din contextul parțial (injectat de inject_user_ctx)
             if let Some(v) = ctx.get("user_email") { page_ctx.insert("user_email", v); }
             if let Some(v) = ctx.get("user_role") { page_ctx.insert("user_role", v); }
             if let Some(v) = ctx.get("is_admin") { page_ctx.insert("is_admin", v); }

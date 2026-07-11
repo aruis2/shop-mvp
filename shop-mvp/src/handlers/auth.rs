@@ -9,12 +9,11 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tera::Context;
 
 use std::sync::OnceLock;
 use crate::state::AuthState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err;
+use crate::handlers::products::render_or_err_json;
 use crate::types::output::OutputFactory;
 use crate::{debug_warn, debug_log};
 
@@ -54,9 +53,6 @@ pub async fn login_page(
             }
         }
     }
-    let mut ctx = Context::new();
-    ctx.insert("title", "Autentificare — Shop MVP");
-    // redirect: din query → din Referer → none
     let redirect = q.redirect.clone().or_else(|| {
         headers.get("referer")
             .and_then(|v| v.to_str().ok())
@@ -66,9 +62,12 @@ pub async fn login_page(
         q.redirect,
         headers.get("referer").and_then(|v| v.to_str().ok()),
         redirect);
-    if let Some(ref r) = redirect { ctx.insert("redirect", r); }
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "auth/login.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Autentificare — Shop MVP",
+    });
+    if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "auth/login.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn signup_page(
@@ -86,16 +85,17 @@ pub async fn signup_page(
             }
         }
     }
-    let mut ctx = Context::new();
-    ctx.insert("title", "Înregistrare — Shop MVP");
     let redirect = q.redirect.or_else(|| {
         headers.get("referer")
             .and_then(|v| v.to_str().ok())
             .and_then(extract_path_from_referer)
     });
-    if let Some(ref r) = redirect { ctx.insert("redirect", r); }
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "auth/signup.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Înregistrare — Shop MVP",
+    });
+    if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "auth/signup.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// Decodează URL-encoding simplu (fără dependințe)
@@ -256,6 +256,24 @@ pub async fn inject_user_ctx(
         ctx.insert("user_role", &u.role);
         if u.role == "admin" {
             ctx.insert("is_admin", &true);
+        }
+    }
+}
+
+/// 🔒 Versiunea JSON a inject_user_ctx — pentru render_json().
+/// Injectează user info într-un serde_json::Value în loc de Tera Context.
+pub async fn inject_user_ctx_json(
+    data: &mut serde_json::Value,
+    headers: &axum::http::HeaderMap,
+    auth: &dyn rust_auth::AuthRepo,
+) {
+    if let Some(u) = current_user(headers, auth).await {
+        if let serde_json::Value::Object(map) = data {
+            map.insert("user_email".to_string(), serde_json::json!(u.email));
+            map.insert("user_role".to_string(), serde_json::json!(u.role));
+            if u.role == "admin" {
+                map.insert("is_admin".to_string(), serde_json::json!(true));
+            }
         }
     }
 }
@@ -491,9 +509,8 @@ pub async fn privacy_policy_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    let mut ctx = Context::new();
-    ctx.insert("title", "Politică de confidențialitate — Shop MVP");
-    render_or_err(&s.renderer, "auth/privacy.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({"title": "Politică de confidențialitate — Shop MVP"});
+    render_or_err_json(&s.renderer, "auth/privacy.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// GET /security — Politica de securitate (PCI DSS)
@@ -502,7 +519,6 @@ pub async fn security_policy_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    let mut ctx = Context::new();
-    ctx.insert("title", "Securitate — Shop MVP");
-    render_or_err(&s.renderer, "auth/security.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({"title": "Securitate — Shop MVP"});
+    render_or_err_json(&s.renderer, "auth/security.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

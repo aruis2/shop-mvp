@@ -8,11 +8,10 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
-use tera::Context;
 
 use crate::state::CartState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err;
+use crate::handlers::products::render_or_err_json;
 use crate::debug_warn;
 
 fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
@@ -77,14 +76,15 @@ pub async fn cart_page(
     }
     let total_lei = format!("{:.2}", total_bani as f64 / 100.0);
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Coș de cumpărături — Shop MVP");
-    ctx.insert("cart_items", &items_json);
-    ctx.insert("total_lei", &total_lei);
-    ctx.insert("item_count", &cart.item_count);
-    ctx.insert("session_id", session_id);
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "cart/cart.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({
+        "title": "Coș de cumpărături — Shop MVP",
+        "cart_items": items_json,
+        "total_lei": total_lei,
+        "item_count": cart.item_count,
+        "session_id": session_id,
+    });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "cart/cart.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 #[derive(Deserialize)]

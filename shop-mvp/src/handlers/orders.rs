@@ -8,11 +8,10 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
-use tera::Context;
 
 use crate::state::OrderState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err;
+use crate::handlers::products::{render_or_err_json};
 use crate::{debug_warn, debug_log};
 
 fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
@@ -65,12 +64,13 @@ pub async fn checkout_page(
         return error_redirect(&format!("{}/cart", bp), "Coșul e gol");
     }
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Checkout — Shop MVP");
-    ctx.insert("session_id", &sid);
-    ctx.insert("total_lei", &format!("{:.2}", cart.total_bani as f64 / 100.0));
-    ctx.insert("item_count", &cart.item_count);
-    match render_or_err(&s.renderer, "orders/checkout.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
+    let data = serde_json::json!({
+        "title": "Checkout — Shop MVP",
+        "session_id": sid,
+        "total_lei": format!("{:.2}", cart.total_bani as f64 / 100.0),
+        "item_count": cart.item_count,
+    });
+    match render_or_err_json(&s.renderer, "orders/checkout.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
         Ok(html) => html.into_response(),
         Err((code, msg)) => (code, msg).into_response(),
     }
@@ -287,13 +287,14 @@ pub async fn orders_page(
         })
     }).collect();
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "Comenzile mele — Shop MVP");
-    ctx.insert("orders", &orders_json);
-    ctx.insert("page", &page);
-    ctx.insert("total_pages", &total_pages);
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    match render_or_err(&s.renderer, "orders/orders.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
+    let mut data = serde_json::json!({
+        "title": "Comenzile mele — Shop MVP",
+        "orders": orders_json,
+        "page": page,
+        "total_pages": total_pages,
+    });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    match render_or_err_json(&s.renderer, "orders/orders.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
         Ok(html) => html.into_response(),
         Err((code, msg)) => (code, msg).into_response(),
     }
@@ -315,9 +316,8 @@ pub async fn success_page(
             let _ = s.orders.update_payment_status(order_id, "paid").await;
         }
     }
-    let mut ctx = Context::new();
-    ctx.insert("title", "Comandă reușită! — Shop MVP");
-    render_or_err(&s.renderer, "orders/success.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({"title": "Comandă reușită! — Shop MVP"});
+    render_or_err_json(&s.renderer, "orders/success.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 // ============================================================================

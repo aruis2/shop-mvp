@@ -17,7 +17,7 @@ use crate::handlers::auth;
 
 pub const PRODUCTS_PER_PAGE: i64 = 24;
 
-/// Helper: render cu mapare de eroare + injectare user
+/// Helper: render cu mapare de eroare + injectare user (Context clasic)
 pub async fn render_or_err(
     renderer: &RenderService,
     template: &str,
@@ -30,6 +30,26 @@ pub async fn render_or_err(
     let mut ctx = ctx.clone();
     auth::inject_user_ctx(&mut ctx, headers, auth_repo).await;
     renderer.render(template, &ctx, base_path, is_htmx)
+        .map_err(|e| {
+            tracing::error!(target: "template", "Eșec render '{}': {}", template, e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)
+        })
+}
+
+/// 🔒 Helper: render cu sanitizare OutputFactory automată (serde_json::Value).
+/// Folosește render_json() care html_encode pe toate string-urile înainte de Tera.
+pub async fn render_or_err_json(
+    renderer: &RenderService,
+    template: &str,
+    data: &serde_json::Value,
+    base_path: &str,
+    is_htmx: bool,
+    headers: &HeaderMap,
+    auth_repo: &dyn rust_auth::AuthRepo,
+) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+    let mut data = data.clone();
+    auth::inject_user_ctx_json(&mut data, headers, auth_repo).await;
+    renderer.render_json(template, &data, base_path, is_htmx)
         .map_err(|e| {
             tracing::error!(target: "template", "Eșec render '{}': {}", template, e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)
@@ -69,10 +89,9 @@ pub async fn home_page(
     headers: HeaderMap,
     Query(q): Query<HomeQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    let mut ctx = Context::new();
-    ctx.insert("title", "Acasă — Shop MVP");
-    if let Some(ref e) = q.error { ctx.insert("error", e); }
-    render_or_err(&s.renderer, "index.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let mut data = serde_json::json!({"title": "Acasă — Shop MVP"});
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    render_or_err_json(&s.renderer, "index.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn search_page(
@@ -96,14 +115,15 @@ pub async fn search_page(
 
     let total_pages = ((total as f64) / PRODUCTS_PER_PAGE as f64).ceil() as i64;
 
-    let mut ctx = Context::new();
-    ctx.insert("title", &format!("Căutare: {} — Shop MVP", q.q));
-    ctx.insert("products", &products_json);
-    ctx.insert("total", &total);
-    ctx.insert("page", &page);
-    ctx.insert("total_pages", &total_pages);
-    ctx.insert("query", &q.q);
-    render_or_err(&s.renderer, "products/search.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({
+        "title": format!("Căutare: {} — Shop MVP", q.q),
+        "products": products_json,
+        "total": total,
+        "page": page,
+        "total_pages": total_pages,
+        "query": q.q,
+    });
+    render_or_err_json(&s.renderer, "products/search.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn products_page(
@@ -137,15 +157,16 @@ pub async fn products_page(
     let total_pages = ((total as f64) / PRODUCTS_PER_PAGE as f64).ceil() as i64;
     let categories = fetch_categories(&s.db).await;
 
-    let mut ctx = Context::new();
-    ctx.insert("title", "📦 Produse");
-    ctx.insert("products", &products_json);
-    ctx.insert("categories", &categories);
-    ctx.insert("category_id", &cat_id);
-    ctx.insert("total", &total);
-    ctx.insert("page", &page);
-    ctx.insert("total_pages", &total_pages);
-    render_or_err(&s.renderer, "products/products.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({
+        "title": "📦 Produse",
+        "products": products_json,
+        "categories": categories,
+        "category_id": cat_id,
+        "total": total,
+        "page": page,
+        "total_pages": total_pages,
+    });
+    render_or_err_json(&s.renderer, "products/products.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn product_detail_page(
@@ -158,7 +179,6 @@ pub async fn product_detail_page(
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((axum::http::StatusCode::NOT_FOUND, "Produs negăsit".into()))?;
 
-    let mut ctx = Context::new();
     let price_lei = product.price_new.map(|v| format!("{:.2}", v as f64 / 100.0));
     let specs_arr: Vec<serde_json::Value> = product.specs.as_object().map(|m| {
         m.iter().map(|(k, v)| {
@@ -166,12 +186,14 @@ pub async fn product_detail_page(
             serde_json::json!({"key": k, "value": val})
         }).collect()
     }).unwrap_or_default();
-    ctx.insert("title", &format!("{} — Shop MVP", product.name));
-    ctx.insert("product", &serde_json::json!({
-        "id": product.id, "brand": product.brand, "name": product.name,
-        "slug": product.slug, "price_new": product.price_new,
-        "price_lei": price_lei, "image_url": product.image_url,
-        "specs": specs_arr, "stock_count": product.stock_count,
-    }));
-    render_or_err(&s.renderer, "products/product_detail.html", &ctx, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    let data = serde_json::json!({
+        "title": format!("{} — Shop MVP", product.name),
+        "product": {
+            "id": product.id, "brand": product.brand, "name": product.name,
+            "slug": product.slug, "price_new": product.price_new,
+            "price_lei": price_lei, "image_url": product.image_url,
+            "specs": specs_arr, "stock_count": product.stock_count,
+        },
+    });
+    render_or_err_json(&s.renderer, "products/product_detail.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
