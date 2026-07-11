@@ -83,9 +83,9 @@ async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://postgres:123123@localhost:5432/test".into());
     let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "super-secret-key-change-in-production".into());
+        .expect("JWT_SECRET must be set in environment — generează un string random: openssl rand -hex 32");
     let stripe_secret = std::env::var("STRIPE_SECRET_KEY")
-        .unwrap_or_else(|_| "sk_test_placeholder".into());
+        .expect("STRIPE_SECRET_KEY must be set in environment");
     let site_url = std::env::var("SITE_URL")
         .unwrap_or_else(|_| "http://localhost:3001".into())
         .trim_end_matches('/')
@@ -443,41 +443,47 @@ pub fn store_idempotency_result(key: &str, result: &str) {
 // ============================================================================
 
 /// Urmărește încercările eșuate de login și blochează temporar contul.
+/// Cheia de lockout e `ip:email` — previne DoS pe email (atacatorul nu poate bloca un cont
+/// doar trimițînd requesturi din IP-uri diferite, dar nici dintr-un singur IP nu poate
+/// bloca un cont — fiecare IP are propriul contor).
 static LOCKOUT_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, (usize, std::time::Instant)>>> = std::sync::OnceLock::new();
 
 fn get_lockout_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, (usize, std::time::Instant)>> {
     LOCKOUT_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Verifică dacă un email e blocat temporar (după 5 încercări eșuate, 15min lockout)
-fn check_lockout(email: &str) -> Result<(), &'static str> {
+/// Verifică dacă un email de la un IP e blocat temporar (după 5 încercări eșuate, 15min lockout)
+fn check_lockout(ip: &str, email: &str) -> Result<(), &'static str> {
+    let key = format!("{}:{}", ip, email);
     let mut map = get_lockout_map().lock().expect("lockout Mutex poisoned");
-    if let Some((count, until)) = map.get(email) {
+    if let Some((count, until)) = map.get(&key) {
         if *count >= 5 {
             if std::time::Instant::now() < *until {
                 return Err("Cont blocat temporar. Încearcă din nou peste 15 minute.");
             } else {
-                map.remove(email);
+                map.remove(&key);
             }
         }
     }
     Ok(())
 }
 
-/// Înregistrează o încercare eșuată de login
-fn record_failed_attempt(email: &str) {
+/// Înregistrează o încercare eșuată de login (per IP:email)
+fn record_failed_attempt(ip: &str, email: &str) {
+    let key = format!("{}:{}", ip, email);
     let mut map = get_lockout_map().lock().expect("lockout Mutex poisoned");
-    let entry = map.entry(email.to_string()).or_insert((0, std::time::Instant::now()));
+    let entry = map.entry(key).or_insert((0, std::time::Instant::now()));
     entry.0 += 1;
     if entry.0 >= 5 {
         entry.1 = std::time::Instant::now() + std::time::Duration::from_secs(15 * 60); // 15min lockout
     }
 }
 
-/// Resetează contorul după login reușit
-fn clear_lockout(email: &str) {
+/// Resetează contorul după login reușit (per IP:email)
+fn clear_lockout(ip: &str, email: &str) {
+    let key = format!("{}:{}", ip, email);
     let mut map = get_lockout_map().lock().expect("lockout Mutex poisoned");
-    map.remove(email);
+    map.remove(&key);
 }
 
 // ============================================================================

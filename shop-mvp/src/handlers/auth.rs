@@ -412,11 +412,11 @@ pub async fn login_handler(
         return safe_redirect(&dest, &bp);
     }
     
-    // 🔒 ASVS L2: Account lockout - verifică dacă emailul e blocat
+    // 🔒 ASVS L2: Account lockout — verifică dacă emailul de la acest IP e blocat
     let email = extract_email(&body);
     if let Some(email) = &email {
-        if let Err(msg) = crate::check_lockout(email) {
-            debug_warn!(target: "auth::lockout", "Cont blocat: {}", email);
+        if let Err(msg) = crate::check_lockout(&ip, email) {
+            debug_warn!(target: "auth::lockout", "Cont blocat: {} de la IP={}", email, ip);
             let dest = format!("{}/login?error={}", bp, msg.replace(' ', "%20"));
             return safe_redirect(&dest, &bp);
         }
@@ -431,13 +431,13 @@ pub async fn login_handler(
     };
     match auth_login(&s, &body, referer).await {
         Ok((r, _)) => {
-            // Login reușit: resetează lockout
-            if let Some(email) = &email { crate::clear_lockout(email); }
+            // Login reușit: resetează lockout per IP:email
+            if let Some(email) = &email { crate::clear_lockout(&ip, email); }
             auth_response(Ok((r, redirect)), &bp)
         }
         Err(e) => {
-            // Login eșuat: înregistrează încercarea
-            if let Some(email) = &email { crate::record_failed_attempt(email); }
+            // Login eșuat: înregistrează încercarea per IP:email
+            if let Some(email) = &email { crate::record_failed_attempt(&ip, email); }
             debug_warn!(target: "auth::login", "login eșuat: {} redirect={}", e, redirect);
             let err_enc = e.replace(' ', "%20");
             let dest = if redirect.is_empty() {
