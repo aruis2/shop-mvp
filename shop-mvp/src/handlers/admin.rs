@@ -20,6 +20,7 @@ use crate::types::output::OutputFactory;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
+use crate::types::QueryValidator;
 use crate::debug_warn;
 
 // ─── Helper ────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ pub async fn admin_products_page(
         Err(html) => return Ok(html),
     };
 
-    let page = q.page.unwrap_or(1).max(1);
+    let page = QueryValidator::page(q.page, 1);
     let (products, total) = s.products.get_products(None, page, ADMIN_PER_PAGE)
         .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let total_pages = (total as f64 / ADMIN_PER_PAGE as f64).ceil() as i64;
@@ -335,7 +336,7 @@ pub async fn admin_orders_page(
         Err(html) => return Ok(html),
     };
 
-    let page = q.page.unwrap_or(1).max(1);
+    let page = QueryValidator::page(q.page, 1);
     let offset = (page - 1) * ADMIN_PER_PAGE;
     let (orders, total) = s.orders.get_all_orders(ADMIN_PER_PAGE, offset).await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

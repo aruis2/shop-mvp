@@ -15,6 +15,7 @@ use crate::state::ProductState;
 use crate::render::{RenderService, DetectBasePath};
 use crate::handlers::auth;
 use crate::types::InputFactory;
+use crate::types::QueryValidator;
 
 pub const PRODUCTS_PER_PAGE: i64 = 24;
 
@@ -121,7 +122,7 @@ pub async fn search_page(
         });
         return render_or_err_json(&s.renderer, "products/search.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await;
     }
-    let page = q.page.unwrap_or(1).max(1);
+    let page = QueryValidator::page(q.page, 1);
     let (products, total) = s.products.search_products(&query_str, page, PRODUCTS_PER_PAGE)
         .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -153,7 +154,7 @@ pub async fn products_page(
     headers: HeaderMap,
     Query(q): Query<ProductsQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    let page = q.page.unwrap_or(1).max(1);
+    let page = QueryValidator::page(q.page, 1);
     let cat_id = q.category;
     let (products, _total) = s.products.get_products(None, page, PRODUCTS_PER_PAGE)
         .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

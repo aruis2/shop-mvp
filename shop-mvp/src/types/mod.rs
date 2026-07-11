@@ -98,3 +98,64 @@ impl InputFactory {
         currency::Currency::parse(s)
     }
 }
+
+// =============================================================================
+// 🔍 QueryValidator — validează și LOGHEAZĂ query params invalide
+// =============================================================================
+// Problema: serde ignoră tăcut valorile invalide în Option<T>.
+// Ex: ?page=abc → page=None, handlerul nu știe, folosește default.
+// QueryValidator prinde asta: loghează și returnează o valoare sigură.
+// =============================================================================
+pub struct QueryValidator;
+
+impl QueryValidator {
+    /// Validează `page`. Loghează dacă e invalid.
+    pub fn page(val: Option<i64>, default: i64) -> i64 {
+        match val {
+            Some(p) if p >= 1 => p,
+            Some(p) => {
+                tracing::warn!(target: "query", "page invalid: {} (folosesc default {})", p, default);
+                default
+            }
+            None => default,
+        }
+    }
+
+    /// Validează un UUID string. Loghează dacă e invalid.
+    pub fn uuid(val: Option<String>, name: &str) -> Option<uuid::Uuid> {
+        match val {
+            Some(s) => match uuid::Uuid::parse_str(&s) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    tracing::warn!(target: "query", "{} UUID invalid: {} (ignorat)", name, s);
+                    None
+                }
+            },
+            None => None,
+        }
+    }
+
+    /// Validează un token JWT (doar format, nu semnătura).
+    pub fn token(val: Option<String>, name: &str) -> Option<String> {
+        match val {
+            Some(t) if t.split('.').count() == 3 => Some(t),
+            Some(t) => {
+                tracing::warn!(target: "query", "{} token invalid format: {} (ignorat)", name, t);
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// Validează session_id: nu acceptăm valori foarte lungi sau suspecte.
+    pub fn session_id(val: Option<String>, name: &str) -> Option<String> {
+        match val {
+            Some(s) if s.len() > 256 => {
+                tracing::warn!(target: "query", "{} session_id suspect: {} caractere (ignorat)", name, s.len());
+                None
+            }
+            Some(s) => Some(s),
+            None => None,
+        }
+    }
+}

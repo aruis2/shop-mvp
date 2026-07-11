@@ -17,6 +17,7 @@ use crate::types::output::OutputFactory;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
+use crate::types::QueryValidator;
 use crate::{debug_warn, debug_log};
 
 /// Extrage token-ul JWT din: Authorization header > cookie > query param
@@ -303,7 +304,7 @@ pub async fn orders_page(
     };
 
     const ORDERS_PER_PAGE: i64 = 10;
-    let page = q.page.unwrap_or(1).max(1);
+    let page = QueryValidator::page(q.page, 1);
     let offset = (page - 1) * ORDERS_PER_PAGE;
     let (orders, total) = match s.orders.get_orders_by_user(user.id, ORDERS_PER_PAGE, offset).await {
         Ok(o) => o,
