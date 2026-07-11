@@ -108,6 +108,60 @@ Standarde care cer explicit verificări pe care Rust nu le poate face:
 
 **Regulă nouă pentru cod:** Orice verificare care NU ține de sintaxa/tipul datelor (deci nu poate fi prinsă de compilator) TREBUIE să treacă printr-o metodă `LogicFactory::verify_*()`. Fără excepții. Dacă în cod scrii `if order.user_id != current_user.id` direct, ai greșit — trebuie `LogicFactory::verify_ownership()`.
 
+### Tabel complet: Bug-uri de runtime și soluțiile lor
+
+| Bug | Rust prinde? | Soluție specifică | Unde se aplică |
+|---|---|---|---|
+| **IDOR** (acces date alt user) | ❌ | `LogicFactory::verify_ownership()` | LogicFactory |
+| **Authorization bypass** (user→admin) | ❌ | `LogicFactory::verify_admin()` | LogicFactory |
+| **State machine** (plată dublă, tranziții invalide) | ❌ | `LogicFactory::verify_not_paid()`, `verify_status_transition()` | LogicFactory |
+| **Business logic** (preț×qty > sold) | ❌ | `LogicFactory::verify_max_order_value()` | LogicFactory |
+| **Stock underflow** (stoc negativ) | ❌ | `SELECT ... FOR UPDATE` în tranzacție | SQL + tranzacții |
+| **Rate limiting** (abuz) | ❌ | `RateLimiter::check()` | Middleware |
+| **Account lockout** (bruteforce) | ❌ | `check_lockout()` + `record_failed_attempt()` | Auth handler |
+| **CSRF** (request forgery) | ❌ | CSRF token + SameSite cookie | Middleware |
+| **`unwrap()` pe `None`** | ❌ runtime panic | `?` operator, `if let`, evitare unwrap | Cod review + clippy |
+| **Index out of bounds** | ❌ runtime panic | `.get(i)` în loc de `[i]`, iteratori | Cod review + clippy |
+| **Integer overflow (release)** | ❌ wrapping | `checked_add()`, `saturating_mul()`, `i64` intermediar | InputFactory (Price) |
+| **Stack overflow** (recursivitate) | ❌ crash | Iterative algorithms, limită de adâncime | Cod review |
+| **Deadlock** | ❌ blocare | Design lock-free, Mutex cu timeout, `loom` | Arhitectură |
+| **Resource leak** (fișiere/DB) | ❌ resource leak | RAII, Drop trait, defer macro | sqlx face automat |
+| **Performanță slabă** (O(n²)) | ❌ merge la fel | Profiling: `perf`, flamegraph, `criterion` | DevOps |
+| **Date race** (concurență) | ✅ **Nativ** | Send + Sync traits, ownership | Rust gratuit |
+
+**Harta completă a uzinelor și responsabilităților:**
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  InputFactory (parser.rs)                                         │
+│  Parsează inputul: Email, Price, Slug, Quantity...                │
+│  Prinde: format invalid, XSS în input, SQL injection              │
+├────────────────────────────────────────────────────────────────────┤
+│  LogicFactory (logic.rs) ⬅️ nou                                   │
+│  Verifică reguli: ownership, autorizare, state machine, stoc      │
+│  Prinde: IDOR, authorization bypass, business logic errors        │
+├────────────────────────────────────────────────────────────────────┤
+│  Codul scris corect + Rust compiler                                │
+│  Prinde: unwrap, index out of bounds, integer overflow, stack     │
+│  overflow, deadlock, resource leak, performanță                    │
+├────────────────────────────────────────────────────────────────────┤
+│  OutputFactory (output.rs)                                        │
+│  Sanitizează outputul: html_encode, safe_redirect, safe_cookie    │
+│  Prinde: XSS, open redirect, HTTP header injection                │
+├────────────────────────────────────────────────────────────────────┤
+│  DevOps + CI/CD                                                    │
+│  Prinde: vulnerabilități (cargo audit), cod rău (clippy),         │
+│  performanță (flamegraph), concurență (loom), fuzzing (cargo fuzz)│
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**De ce nu facem totul într-o singură uzină?** Pentru că fiecare categorie de bug are:
+- **Tool total diferit**: LogicFactory e cod scris de noi, overflow se rezolvă cu `checked_add()`, stack overflow cu restructurare, performanța cu profiling
+- **Responsabilitate diferită**: Unele sînt prevenite la scris cod (unwrap), altele la testare (performanță), altele la runtime (rate limiting)
+- **Nivel diferit**: Compilatorul, runtime-ul, tooling-ul extern — fiecare prinde altceva
+
+Separarea asta ne permite să știm EXACT ce face fiecare componentă și ce nu face.
+
 ---
 
 ## Articole conexe
