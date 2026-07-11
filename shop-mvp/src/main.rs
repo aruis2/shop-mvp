@@ -521,14 +521,15 @@ async fn security_headers(
         );
     }
 
-    // 🔒 CSP — restrict script execution to known sources (OWASP ASVS V10)
-    // Tailwind CDN e permis explicit (nu 'unsafe-inline') pentru dev mode
-    // style-src 'unsafe-inline' e necesar pentru Tera templates cu clase CSS inline
-    // La producție: scoate cdn.tailwindcss.com și build-uieste local
+    // 🔒 CSP — restrict resource loading to trusted sources (OWASP ASVS V10)
+    // Zero JS (HN philosophy) → script-src 'self' e suficient.
+    // style-src 'unsafe-inline' e necesar pentru clase CSS inline în Tera.
+    // frame-ancestors 'none' + X-Frame-Options DENY dublează protecția.
+    // upgrade-insecure-requests forțează HTTPS.
     parts.headers.insert(
         axum::http::header::CONTENT_SECURITY_POLICY,
         axum::http::HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; img-src 'self' data:; form-action 'self'; base-uri 'self'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
         ),
     );
 
