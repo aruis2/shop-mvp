@@ -51,6 +51,15 @@ Fiecare bucată de cod poartă comentarii care explică **de ce** e scris așa, 
 
 Un comentariu bun răspunde la întrebarea pe care și-o pune cineva peste 6 luni cînd citește codul. Fără comentarii de tipul `// i++` — aia se vede și din cod.
 
+#### 14. Inputul utilizatorului e prins la granița aplicației — zero intermediari
+Tot ce vine de la utilizator (HTTP body, query params, cookie-uri) e prelucrat de **codul nostru, la prima linie** în handler. Nu folosim librării externe pentru parsarea inputului brut — avem propriul parser URL-encoded (`types/parser.rs`), propriul cookie parser (`cookie.rs`), propriile tipuri cu validare (`types/email.rs`, `types/price.rs`, etc.).
+
+Avantaje:
+- **Control total**: știm EXACT cum e prelucrat inputul, fără surprize din dependințe externe
+- **Zero risc de securitate din crate-uri terțe**: niciun CVE într-un parser scris de noi nu ne poate afecta
+- **Fix la graniță**: între `body: String` (de la Axum) și primul nostru `InputFactory::parse_*()` nu există niciun pas intermediar — nici serde_urlencoded, nici un alt crate
+- **Dacă apare o problemă, o rezolvăm în 1 minut**: nu așteptăm update de la terți
+
 ---
 
 ## Articole conexe
