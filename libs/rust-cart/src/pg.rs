@@ -49,6 +49,25 @@ impl CartRepo for PgCartRepo {
         .execute(&self.pool)
         .await;
 
+        // 🔒 UNIQUE constraint previne duplicate la add_item concurent
+        let _ = sqlx::query(
+            r#"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'cart_items_unique_session_product_price'
+                ) THEN
+                    ALTER TABLE cart_items
+                    ADD CONSTRAINT cart_items_unique_session_product_price
+                    UNIQUE (session_id, product_slug, price_bani);
+                END IF;
+            END $$;
+            "#
+        )
+        .execute(&self.pool)
+        .await;
+
         Ok(())
     }
 
@@ -94,45 +113,27 @@ impl CartRepo for PgCartRepo {
             return Err(CartError::InvalidPrice);
         }
 
-        // Încercăm mai întâi să incrementăm cantitatea dacă există deja un rând
-        // cu ACELAȘI produs ȘI ACELAȘI preț (prețurile diferite merg pe rânduri separate)
-        let updated = sqlx::query_as::<_, CartItem>(
+        // 🏭 INSERT ... ON CONFLICT DO UPDATE — previne race condition la add concurent
+        // UNIQUE pe (session_id, product_slug, price_bani) garantat de migrate()
+        let item = sqlx::query_as::<_, CartItem>(
             r#"
-            UPDATE cart_items
-            SET qty = qty + $3, updated_at = NOW()
-            WHERE session_id = $1 AND product_slug = $2 AND price_bani = $4
+            INSERT INTO cart_items (session_id, user_id, product_slug, product_name, price_bani, qty)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (session_id, product_slug, price_bani)
+            DO UPDATE SET qty = cart_items.qty + EXCLUDED.qty,
+                          updated_at = NOW()
             RETURNING id, session_id, user_id, product_slug, product_name,
                       price_bani, qty, created_at, updated_at
             "#
         )
         .bind(session_id)
+        .bind(user_id)
         .bind(&req.product_slug)
-        .bind(req.qty)
+        .bind(&req.product_name)
         .bind(req.price_bani)
-        .fetch_optional(&self.pool)
+        .bind(req.qty)
+        .fetch_one(&self.pool)
         .await?;
-
-        let item = if let Some(existing) = updated {
-            existing
-        } else {
-            // Altfel, inserăm un item nou (preț diferit față de rândurile existente)
-            sqlx::query_as::<_, CartItem>(
-                r#"
-                INSERT INTO cart_items (session_id, user_id, product_slug, product_name, price_bani, qty)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING id, session_id, user_id, product_slug, product_name,
-                          price_bani, qty, created_at, updated_at
-                "#
-            )
-            .bind(session_id)
-            .bind(user_id)
-            .bind(&req.product_slug)
-            .bind(&req.product_name)
-            .bind(req.price_bani)
-            .bind(req.qty)
-            .fetch_one(&self.pool)
-            .await?
-        };
 
         // Recalculăm totalurile
         let cart = self.get_cart(session_id).await?;

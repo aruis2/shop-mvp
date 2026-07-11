@@ -95,6 +95,7 @@ mod tests {
     fn test_place_order_request() {
         let req = PlaceOrderRequest {
             session_id: "test-session".into(),
+            guest_email: None,
             shipping_name: "John Doe".into(),
             shipping_address: "Str. Mare, Nr. 1".into(),
             shipping_phone: "+37360000000".into(),

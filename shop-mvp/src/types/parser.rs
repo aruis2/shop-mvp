@@ -15,8 +15,8 @@ use crate::types::error::InputError;
 /// Un cîmp dintr-un form URL-encoded, deja parsat și URL-decodat.
 /// Conține doar ce e strict necesar: numele cîmpului și valoarea ca string.
 #[derive(Debug)]
-pub struct FormField<'a> {
-    pub name: &'a str,
+pub struct FormField {
+    pub name: String,
     pub value: String,
 }
 
@@ -26,12 +26,12 @@ pub struct FormField<'a> {
 /// "email=ion%40test.com&qty=3" →
 ///   [FormField { name: "email", value: "ion@test.com" },
 ///    FormField { name: "qty", value: "3" }]
-pub fn parse_form(body: &str) -> Vec<FormField<'_>> {
+pub fn parse_form(body: &str) -> Vec<FormField> {
     body.split('&')
         .filter_map(|pair| {
             let (raw_key, raw_val) = pair.split_once('=')?;
             Some(FormField {
-                name: raw_key,
+                name: raw_key.to_string(),
                 value: url_decode(raw_val),
             })
         })
@@ -39,7 +39,7 @@ pub fn parse_form(body: &str) -> Vec<FormField<'_>> {
 }
 
 /// Extrage valoarea unui cîmp după nume.
-pub fn get_field<'a>(fields: &'a [FormField<'a>], name: &str) -> Result<&'a str, InputError> {
+pub fn get_field<'a>(fields: &'a [FormField], name: &str) -> Result<&'a str, InputError> {
     fields.iter()
         .find(|f| f.name == name)
         .map(|f| f.value.as_str())
@@ -85,6 +85,40 @@ pub fn parse_form_into<T>(
     f: impl FnOnce(&[FormField]) -> Result<T, InputError>,
 ) -> Result<T, InputError> {
     let fields = parse_form(body);
+    f(&fields)
+}
+
+/// Parsează ORICE body (JSON sau form-urlencoded) în tipurile noastre.
+/// Încearcă JSON prima dată, apoi form-urlencoded.
+/// JSON-ul e convertit la același format `FormField[]` pentru validare uniformă.
+///
+/// Aceasta e SINGURA funcție de entry point pentru date externe.
+pub fn parse_any_into<T>(
+    body: &str,
+    f: impl FnOnce(&[FormField]) -> Result<T, InputError>,
+) -> Result<T, InputError> {
+    let fields = if body.starts_with('{') {
+        // JSON → FormField[]
+        match serde_json::from_str::<serde_json::Value>(body) {
+            Ok(serde_json::Value::Object(map)) => {
+                map.into_iter()
+                    .map(|(k, v)| {
+                        let value = match v {
+                            serde_json::Value::String(s) => s,
+                            serde_json::Value::Number(n) => n.to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            serde_json::Value::Null => String::new(),
+                            _ => v.to_string(),
+                        };
+                        FormField { name: k, value }
+                    })
+                    .collect()
+            },
+            _ => parse_form(body),
+        }
+    } else {
+        parse_form(body)
+    };
     f(&fields)
 }
 

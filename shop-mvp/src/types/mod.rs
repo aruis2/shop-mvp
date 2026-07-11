@@ -17,6 +17,7 @@ pub mod currency;
 pub mod email;
 pub mod error;
 pub mod id_types;
+pub mod logic;
 pub mod output;
 pub mod parser;
 pub mod phone;

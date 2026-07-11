@@ -15,14 +15,12 @@ use serde::Deserialize;
 use crate::state::AdminState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err_json;
+use crate::types::logic::LogicFactory;
 use crate::types::output::OutputFactory;
+use crate::types::parser::{parse_any_into, get_field};
+use crate::types::error::InputError;
+use crate::types::InputFactory;
 use crate::debug_warn;
-
-fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
-    serde_json::from_str::<T>(body)
-        .or_else(|_| serde_urlencoded::from_str::<T>(body))
-        .map_err(|e| format!("Date invalide: {e}"))
-}
 
 // ─── Helper ────────────────────────────────────────────────────
 
@@ -44,9 +42,9 @@ async fn verify_admin(
         .ok_or((axum::http::StatusCode::UNAUTHORIZED, "Admin: token lipsă".into()))?;
     let user = auth.verify_token(token).await
         .map_err(|_| (axum::http::StatusCode::UNAUTHORIZED, "Admin: token invalid".into()))?;
-    if user.role != "admin" {
-        return Err((axum::http::StatusCode::FORBIDDEN, "Admin: acces interzis".into()));
-    }
+    LogicFactory::verify_admin(&user.role).map_err(|_| {
+        (axum::http::StatusCode::FORBIDDEN, "Admin: acces interzis".into())
+    })?;
     Ok(user)
 }
 
@@ -149,15 +147,6 @@ pub async fn admin_product_new_page(
     render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-#[derive(Deserialize)]
-pub struct CreateProductForm {
-    pub brand: String,
-    pub name: String,
-    pub slug: String,
-    pub price_new: Option<i32>,
-    pub stock_count: Option<i32>,
-}
-
 pub async fn admin_product_create(
     State(s): State<AdminState>,
     DetectBasePath(bp): DetectBasePath,
@@ -170,21 +159,42 @@ pub async fn admin_product_create(
         Err(_) => return render_admin_redirect(&bp, "/admin/product/new").into_response(),
     };
 
-    let req = match parse_body::<CreateProductForm>(&body) {
-        Ok(r) => r,
+    // 🏭 InputFactory: validează toate cîmpurile produsului
+    let (brand, name, slug_s, price_new, stock_count) = match parse_any_into(&body, |fields| {
+        let brand = InputFactory::parse_brand(get_field(fields, "brand")?)?;
+        let name = InputFactory::parse_product_name(get_field(fields, "name")?)?;
+        let slug_raw = get_field(fields, "slug").unwrap_or("");
+        let slug = if slug_raw.is_empty() {
+            // Auto-generare din nume
+            InputFactory::parse_slug(&name.as_str().to_lowercase().replace(' ', "-"))?
+        } else {
+            InputFactory::parse_slug(slug_raw)?
+        };
+        let price_new = get_field(fields, "price_new").ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        let stock_count = get_field(fields, "stock_count").ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        Ok::<(String, String, String, Option<i32>, Option<i32>), InputError>((
+            brand.to_string(),
+            name.to_string(),
+            slug.as_str().to_string(),
+            price_new,
+            stock_count,
+        ))
+    }) {
+        Ok(v) => v,
         Err(e) => {
-            debug_warn!(target: "admin::product", "create product: parse error: {}", e);
-            return error_redirect(&headers, &bp, &e);
+            debug_warn!(target: "admin::product", "create product: InputFactory error: {}", e);
+            return error_redirect(&headers, &bp, &e.to_string());
         },
     };
 
-    let slug_val = if req.slug.is_empty() { req.name.clone().to_lowercase().replace(" ", "-") } else { req.slug.clone() };
     let create_req = rust_marketplace_products::CreateProductRequest {
-        brand: req.brand, name: req.name, slug: slug_val,
+        brand, name, slug: slug_s,
         category_id: 1, release_year: None,
         specs: Some(serde_json::json!({})),
-        price_new: req.price_new, affiliate_url: None, image_url: None,
-        stock_count: req.stock_count,
+        price_new, affiliate_url: None, image_url: None,
+        stock_count,
     };
 
     match s.products.create_product(create_req).await {
@@ -225,15 +235,6 @@ pub async fn admin_product_edit_page(
     render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-#[derive(Deserialize)]
-pub struct UpdateProductForm {
-    pub brand: Option<String>,
-    pub name: Option<String>,
-    pub slug: Option<String>,
-    pub price_new: Option<i32>,
-    pub stock_count: Option<i32>,
-}
-
 pub async fn admin_product_update(
     State(s): State<AdminState>,
     DetectBasePath(bp): DetectBasePath,
@@ -248,19 +249,37 @@ pub async fn admin_product_update(
         Err(_) => return render_admin_redirect(&bp, &rp).into_response(),
     };
 
-    let req = match parse_body::<UpdateProductForm>(&body) {
-        Ok(r) => r,
+    // 🏭 InputFactory: validează cîmpurile opționale
+    let (brand, name, slug_s, price_new, stock_count) = match parse_any_into(&body, |fields| {
+        let brand = get_field(fields, "brand").ok()
+            .map(|s| InputFactory::parse_brand(s).map(|b| b.to_string()))
+            .transpose()?;
+        let name = get_field(fields, "name").ok()
+            .map(|s| InputFactory::parse_product_name(s).map(|n| n.to_string()))
+            .transpose()?;
+        let slug_s = get_field(fields, "slug").ok()
+            .map(|s| InputFactory::parse_slug(s).map(|sl| sl.as_str().to_string()))
+            .transpose()?;
+        let price_new = get_field(fields, "price_new").ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        let stock_count = get_field(fields, "stock_count").ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        Ok::<(Option<String>, Option<String>, Option<String>, Option<i32>, Option<i32>), InputError>((
+            brand, name, slug_s, price_new, stock_count,
+        ))
+    }) {
+        Ok(v) => v,
         Err(e) => {
-            debug_warn!(target: "admin::product", "update product: parse error: {}", e);
-            return error_redirect(&headers, &bp, &e);
+            debug_warn!(target: "admin::product", "update product: InputFactory error: {}", e);
+            return error_redirect(&headers, &bp, &e.to_string());
         },
     };
 
     let update_req = rust_marketplace_products::UpdateProductRequest {
-        brand: req.brand, name: req.name, slug: req.slug,
+        brand, name, slug: slug_s,
         category_id: None, release_year: None, specs: None,
-        price_new: req.price_new, affiliate_url: None, image_url: None,
-        stock_count: req.stock_count,
+        price_new, affiliate_url: None, image_url: None,
+        stock_count,
     };
 
     match s.products.update_product(&slug, update_req).await {
@@ -346,11 +365,6 @@ pub async fn admin_orders_page(
     render_or_err_json(&s.renderer, "admin/admin_orders.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-#[derive(Deserialize)]
-pub struct AdminStatusForm {
-    pub status: String,
-}
-
 fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Response {
     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("");
     let base = referer.split('?').next().unwrap_or("");
@@ -387,9 +401,16 @@ pub async fn admin_order_update_status(
         Err(_) => return render_admin_redirect(&bp, &rp).into_response(),
     };
 
-    let req = match parse_body::<AdminStatusForm>(&body) {
-        Ok(r) => r,
-        Err(e) => return error_redirect(&headers, &bp, &e),
+    // 🏭 InputFactory: parsează statusul
+    let status = match parse_any_into(&body, |fields| {
+        let status = get_field(fields, "status")?;
+        if status.is_empty() {
+            return Err(InputError::MissingField("status".to_string()));
+        }
+        Ok(status.to_string())
+    }) {
+        Ok(s) => s,
+        Err(e) => return error_redirect(&headers, &bp, &e.to_string()),
     };
 
     let order = match s.orders.get_by_id(id).await {
@@ -399,9 +420,9 @@ pub async fn admin_order_update_status(
     };
 
     let needs_payment = ["confirmed", "shipped", "delivered"];
-    if needs_payment.contains(&req.status.as_str()) {
-        if order.payment_status != "paid" {
-            let status_label = match req.status.as_str() {
+    if needs_payment.contains(&status.as_str()) {
+        if let Err(_) = LogicFactory::verify_not_paid(&order.payment_status) {
+            let status_label = match status.as_str() {
                 "confirmed" => "confirmată",
                 "shipped" => "expediată",
                 "delivered" => "livrată",
@@ -412,13 +433,14 @@ pub async fn admin_order_update_status(
         }
     }
 
-    let cannot_cancel = ["shipped", "delivered"];
-    if req.status == "cancelled" && cannot_cancel.contains(&order.status.as_str()) {
-        let msg = format!("Comanda nu poate fi anulată — este deja {}", if order.status == "shipped" { "expediată" } else { "livrată" });
+    if let Err(_) = LogicFactory::verify_status_transition(&order.status, &status) {
+        let msg = format!("Comanda nu poate fi {} — este deja {}",
+            if status == "cancelled" { "anulată" } else { "actualizată" },
+            order.status);
         return error_redirect(&headers, &bp, &msg);
     }
 
-    if req.status == "cancelled" && order.payment_status == "paid" {
+    if status == "cancelled" && order.payment_status == "paid" {
         if let Some(ref pid) = order.payment_provider_id {
             if let Err(e) = s.payment.refund_payment(pid).await {
                 tracing::warn!("Refund eșuat pentru comanda {}: {}", id, e);
@@ -429,7 +451,7 @@ pub async fn admin_order_update_status(
         }
     }
 
-    if let Err(e) = s.orders.update_status(id, &req.status).await {
+    if let Err(e) = s.orders.update_status(id, &status).await {
         return error_redirect(&headers, &bp, &e.to_string());
     }
 

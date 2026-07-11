@@ -15,6 +15,9 @@ use crate::state::AuthState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err_json;
 use crate::types::output::OutputFactory;
+use crate::types::parser::{parse_any_into, get_field};
+use crate::types::error::InputError;
+use crate::types::InputFactory;
 use crate::{debug_warn, debug_log};
 
 /// Rate limiter pentru login/signup: 5 requesturi pe minut per IP
@@ -98,36 +101,20 @@ pub async fn signup_page(
     render_or_err_json(&s.renderer, "auth/signup.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-/// Decodează URL-encoding simplu (fără dependințe)
-fn urlencoding_decode(s: &str) -> Option<String> {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '+' {
-            out.push(' ');
-        } else if c == '%' {
-            let hi = chars.next()?.to_digit(16)?;
-            let lo = chars.next()?.to_digit(16)?;
-            out.push(char::from((hi * 16 + lo) as u8));
-        } else {
-            out.push(c);
-        }
-    }
-    Some(out)
-}
-
 /// Parsează body-ul ca JSON sau form-urlencoded (HTMX trimite form data)
-fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
-    serde_json::from_str::<T>(body)
-        .or_else(|_| serde_urlencoded::from_str::<T>(body))
-        .map_err(|e| format!("Date invalide: {e}"))
+/// și validează prin InputFactory
+fn parse_body_and_validate<T>(
+    body: &str,
+    f: impl FnOnce(&[crate::types::parser::FormField]) -> Result<T, InputError>,
+) -> Result<T, String> {
+    parse_any_into(body, f).map_err(|e| e.to_string())
 }
 
 /// Extrage parametrul `redirect=` din raw body (form-urlencoded)
 fn extract_redirect(body: &str) -> String {
-    body.split('&')
-        .find_map(|p| p.strip_prefix("redirect="))
-        .map(|v| urlencoding_decode(v).unwrap_or_default())
+    let fields = crate::types::parser::parse_form(body);
+    crate::types::parser::get_field(&fields, "redirect")
+        .map(|s| s.to_string())
         .unwrap_or_default()
 }
 
@@ -137,7 +124,22 @@ pub struct LogoutQuery {
 }
 
 async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
-    let req = parse_body::<rust_auth::CreateUserRequest>(body)?;
+    // 🏭 InputFactory: validează email + password
+    let (email_str, password) = parse_body_and_validate(body, |fields| {
+        let email = InputFactory::parse_email(get_field(fields, "email")?)?;
+        let password = get_field(fields, "password")?;
+        // Password e string simplu, verificăm doar lungimea
+        if password.len() < 8 {
+            return Err(InputError::PasswordTooShort);
+        }
+        Ok((email.as_str().to_string(), password.to_string()))
+    })?;
+
+    let req = rust_auth::CreateUserRequest {
+        email: email_str,
+        password,
+        name: None,
+    };
     let redirect = extract_redirect(body);
     let redirect = if redirect.is_empty() {
         referer.and_then(|r| r.split('?').next()).unwrap_or("").to_string()
@@ -148,7 +150,20 @@ async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result
 }
 
 async fn auth_login(s: &AuthState, body: &str, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
-    let req = parse_body::<rust_auth::LoginRequest>(body)?;
+    // 🏭 InputFactory: validează email + password
+    let (email_str, password) = parse_body_and_validate(body, |fields| {
+        let email = InputFactory::parse_email(get_field(fields, "email")?)?;
+        let password = get_field(fields, "password")?;
+        if password.is_empty() {
+            return Err(InputError::MissingField("password".to_string()));
+        }
+        Ok((email.as_str().to_string(), password.to_string()))
+    })?;
+
+    let req = rust_auth::LoginRequest {
+        email: email_str,
+        password,
+    };
     let redirect = extract_redirect(body);
     let redirect = if redirect.is_empty() {
         referer.and_then(|r| r.split('?').next()).unwrap_or("").to_string()

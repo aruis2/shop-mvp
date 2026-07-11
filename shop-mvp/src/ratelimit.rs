@@ -31,7 +31,7 @@ impl RateLimiter {
     /// Returnează `true` dacă e permis, `false` dacă e rate-limited.
     pub fn check(&self, ip: &str) -> bool {
         let now = Instant::now();
-        let mut map = self.requests.lock().unwrap();
+        let mut map = self.requests.lock().expect("ratelimit Mutex poisoned");
         let entries = map.entry(ip.to_string()).or_insert_with(Vec::new);
 
         // Elimină entry-urile mai vechi de fereastră
@@ -51,7 +51,7 @@ impl RateLimiter {
     pub fn cleanup(&self) {
         let now = Instant::now();
         let cutoff = now - std::time::Duration::from_secs(self.window_secs);
-        let mut map = self.requests.lock().unwrap();
+        let mut map = self.requests.lock().expect("ratelimit Mutex poisoned");
         map.retain(|_, entries| {
             entries.retain(|&t| t > cutoff);
             !entries.is_empty()

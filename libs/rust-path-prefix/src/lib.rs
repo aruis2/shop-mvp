@@ -54,8 +54,10 @@ impl PathPrefix {
         if self.prefix.is_empty() {
             return path.to_string();
         }
-        if path == "/" || path.is_empty() {
+        if path == "/" {
             format!("{}/", self.prefix)
+        } else if path.is_empty() {
+            self.prefix.clone()
         } else {
             format!("{}{}", self.prefix, path)
         }

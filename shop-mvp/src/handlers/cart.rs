@@ -12,14 +12,12 @@ use serde::Deserialize;
 use crate::state::CartState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err_json;
+use crate::types::logic::LogicFactory;
 use crate::types::output::OutputFactory;
+use crate::types::parser::{parse_any_into, get_field};
+use crate::types::error::InputError;
+use crate::types::InputFactory;
 use crate::debug_warn;
-
-fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
-    serde_json::from_str::<T>(body)
-        .or_else(|_| serde_urlencoded::from_str::<T>(body))
-        .map_err(|e| format!("Date invalide: {e}"))
-}
 
 fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> Response {
     let base = headers.get("referer")
@@ -91,11 +89,7 @@ pub async fn cart_page(
     render_or_err_json(&s.renderer, "cart/cart.html", &data, &bp, false, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-#[derive(Deserialize)]
-pub struct AddItemForm {
-    pub product_slug: String,
-    pub qty: Option<i32>,
-}
+// ─── Add to cart ────────────────────────────────────────
 
 pub async fn cart_add(
     State(s): State<CartState>,
@@ -108,12 +102,25 @@ pub async fn cart_add(
         .map(|s| s.to_string())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    let form = match parse_body::<AddItemForm>(&body) {
-        Ok(f) => f,
-        Err(_) => return redirect_back(&headers, "/products", Some("Date invalide")),
+    // 🏭 InputFactory: parsează și validează chiar la graniță
+    let (slug_str, qty) = match parse_any_into(&body, |fields| {
+        let slug = InputFactory::parse_slug(get_field(fields, "product_slug")?)?;
+        let qty_str = get_field(fields, "qty").unwrap_or("1");
+        let qty_val: i32 = qty_str.parse().unwrap_or(1);
+        let qty = InputFactory::parse_qty(qty_val)?;
+        Ok::<(String, i32), InputError>((slug.as_str().to_string(), qty.get() as i32))
+    }) {
+        Ok(v) => v,
+        Err(InputError::MissingField(_)) | Err(InputError::InvalidSlug(_)) => {
+            return redirect_back(&headers, "/products", Some("Date invalide"));
+        },
+        Err(e) => {
+            debug_warn!(target: "cart::add", "InputFactory: {}", e);
+            return redirect_back(&headers, "/products", Some("Date invalide"));
+        },
     };
 
-    let product = match s.products.get_by_slug(&form.product_slug).await {
+    let product = match s.products.get_by_slug(&slug_str).await {
         Ok(Some(p)) => p,
         _ => return redirect_back(&headers, "/products", Some("Produs negăsit")),
     };
@@ -123,10 +130,18 @@ pub async fn cart_add(
         None => return redirect_back(&headers, "/products", Some("Produsul nu are preț")),
     };
 
-    let qty = form.qty.unwrap_or(1).min(s.max_qty);
+    // 🏭 LogicFactory: validează cantitatea (deja validată de InputFactory, dublă verificare)
+    if let Err(_) = LogicFactory::verify_qty_in_range(qty, 1, s.max_qty) {
+        return redirect_back(&headers, "/products", Some("Cantitate invalidă"));
+    }
+
+    // 🏭 LogicFactory: verifică stoc
+    if let Err(_) = LogicFactory::verify_stock_available(product.stock_count, qty) {
+        return redirect_back(&headers, "/products", Some("Stoc insuficient"));
+    }
 
     let req = rust_cart::AddCartItemRequest {
-        product_slug: form.product_slug,
+        product_slug: slug_str,
         product_name: product.name,
         price_bani,
         qty,
@@ -145,10 +160,7 @@ pub async fn cart_add(
     resp
 }
 
-#[derive(Deserialize)]
-pub struct RemoveItemForm {
-    pub item_id: String,
-}
+// ─── Remove from cart ───────────────────────────────────
 
 pub async fn cart_remove(
     State(s): State<CartState>,
@@ -160,12 +172,16 @@ pub async fn cart_remove(
         .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
         .unwrap_or("anon");
 
-    let form = match parse_body::<RemoveItemForm>(&body) {
-        Ok(f) => f,
+    // 🏭 InputFactory: parsează item_id
+    let item_id_str = match parse_any_into(&body, |fields| {
+        let id = get_field(fields, "item_id")?;
+        Ok(id.to_string())
+    }) {
+        Ok(id) => id,
         Err(_) => return redirect_back(&headers, "/cart", Some("Date invalide")),
     };
 
-    let item_id = match uuid::Uuid::parse_str(&form.item_id) {
+    let item_id = match uuid::Uuid::parse_str(&item_id_str) {
         Ok(id) => id,
         Err(_) => return redirect_back(&headers, "/cart", Some("ID invalid")),
     };

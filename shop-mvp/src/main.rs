@@ -431,12 +431,12 @@ fn generate_idempotency_key(order_id: &str) -> String {
 
 /// Verifică dacă o plată a fost deja procesată.
 pub fn check_idempotency(key: &str) -> Option<String> {
-    get_idempotency_cache().lock().unwrap().get(key).cloned()
+    get_idempotency_cache().lock().expect("idempotency Mutex poisoned").get(key).cloned()
 }
 
 /// Stochează rezultatul idempotent al unei plăți.
 pub fn store_idempotency_result(key: &str, result: &str) {
-    get_idempotency_cache().lock().unwrap().insert(key.to_string(), result.to_string());
+    get_idempotency_cache().lock().expect("idempotency Mutex poisoned").insert(key.to_string(), result.to_string());
 }
 
 // 🔒 ASVS L2: Account lockout middleware
@@ -451,7 +451,7 @@ fn get_lockout_map() -> &'static std::sync::Mutex<std::collections::HashMap<Stri
 
 /// Verifică dacă un email e blocat temporar (după 5 încercări eșuate, 15min lockout)
 fn check_lockout(email: &str) -> Result<(), &'static str> {
-    let mut map = get_lockout_map().lock().unwrap();
+    let mut map = get_lockout_map().lock().expect("lockout Mutex poisoned");
     if let Some((count, until)) = map.get(email) {
         if *count >= 5 {
             if std::time::Instant::now() < *until {
@@ -466,7 +466,7 @@ fn check_lockout(email: &str) -> Result<(), &'static str> {
 
 /// Înregistrează o încercare eșuată de login
 fn record_failed_attempt(email: &str) {
-    let mut map = get_lockout_map().lock().unwrap();
+    let mut map = get_lockout_map().lock().expect("lockout Mutex poisoned");
     let entry = map.entry(email.to_string()).or_insert((0, std::time::Instant::now()));
     entry.0 += 1;
     if entry.0 >= 5 {
@@ -476,7 +476,7 @@ fn record_failed_attempt(email: &str) {
 
 /// Resetează contorul după login reușit
 fn clear_lockout(email: &str) {
-    let mut map = get_lockout_map().lock().unwrap();
+    let mut map = get_lockout_map().lock().expect("lockout Mutex poisoned");
     map.remove(email);
 }
 

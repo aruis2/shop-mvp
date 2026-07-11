@@ -12,14 +12,12 @@ use serde::Deserialize;
 use crate::state::OrderState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::{render_or_err_json};
+use crate::types::logic::LogicFactory;
 use crate::types::output::OutputFactory;
+use crate::types::parser::{parse_any_into, get_field};
+use crate::types::error::InputError;
+use crate::types::InputFactory;
 use crate::{debug_warn, debug_log};
-
-fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
-    serde_json::from_str::<T>(body)
-        .or_else(|_| serde_urlencoded::from_str::<T>(body))
-        .map_err(|e| format!("Date invalide: {e}"))
-}
 
 /// Extrage token-ul JWT din: Authorization header > cookie > query param
 fn extract_token<'a>(headers: &'a axum::http::HeaderMap, q: &'a Option<String>) -> Option<&'a str> {
@@ -61,6 +59,7 @@ pub async fn checkout_page(
         Err(e) => return error_redirect(&format!("{}/cart", bp), &e.to_string()),
     };
 
+    // 🏭 LogicFactory: verifică coș ne-gol
     if cart.items.is_empty() {
         return error_redirect(&format!("{}/cart", bp), "Coșul e gol");
     }
@@ -77,14 +76,14 @@ pub async fn checkout_page(
     }
 }
 
-#[derive(Deserialize)]
-pub struct CheckoutForm {
-    pub session_id: String,
-    pub guest_email: Option<String>,
-    pub shipping_name: String,
-    pub shipping_address: String,
-    pub shipping_phone: String,
-    pub notes: Option<String>,
+/// Date de checkout validate prin InputFactory
+struct CheckoutParsed {
+    session_id: String,
+    guest_email: Option<String>,
+    shipping_name: String,
+    shipping_address: String,
+    shipping_phone: String,
+    notes: Option<String>,
 }
 
 fn err_htmx(msg: &str) -> Response {
@@ -109,6 +108,7 @@ fn redirect_to_login(base_path: &str) -> Response {
         .unwrap_or_else(|| "/login".to_string());
     (StatusCode::FOUND, [("Location", safe_dest)]).into_response()
 }
+
 pub async fn checkout_handler(
     State(s): State<OrderState>,
     DetectBasePath(bp): DetectBasePath,
@@ -118,14 +118,40 @@ pub async fn checkout_handler(
     let is_htmx = headers.get("hx-request").is_some();
     let token_str = extract_token(&headers, &None).unwrap_or("");
 
-    let req = match parse_body::<CheckoutForm>(&body) {
-        Ok(r) => r,
-        Err(e) => return if is_htmx { err_htmx(&e) } else { error_redirect(&format!("{}/checkout", bp), &e) },
+    // 🏭 InputFactory: parsează și validează TOT inputul
+    let checkout = match parse_any_into(&body, |fields| {
+        let session_id = InputFactory::parse_session_id(get_field(fields, "session_id")?)?;
+        let guest_email = get_field(fields, "guest_email").ok()
+            .and_then(|s| if s.is_empty() { None } else { Some(s.to_string()) });
+        let shipping_name = InputFactory::parse_name(get_field(fields, "shipping_name")?)?;
+        let shipping_address = InputFactory::parse_address(get_field(fields, "shipping_address")?)?;
+        let shipping_phone = InputFactory::parse_phone(get_field(fields, "shipping_phone")?)?;
+        let notes = get_field(fields, "notes").ok()
+            .and_then(|s| if s.is_empty() { None } else {
+                InputFactory::parse_notes(s).ok().map(|n| n.to_string())
+            });
+        Ok(CheckoutParsed {
+            session_id: session_id.to_string(),
+            guest_email,
+            shipping_name: shipping_name.to_string(),
+            shipping_address: shipping_address.to_string(),
+            shipping_phone: shipping_phone.to_string(),
+            notes,
+        })
+    }) {
+        Ok(c) => c,
+        Err(InputError::MissingField(f)) => {
+            let msg = format!("Cîmpul '{f}' lipsește");
+            return if is_htmx { err_htmx(&msg) } else { error_redirect(&format!("{}/checkout", bp), &msg) };
+        },
+        Err(e) => {
+            return if is_htmx { err_htmx(&e.to_string()) } else { error_redirect(&format!("{}/checkout", bp), &e.to_string()) };
+        },
     };
 
     let user_id = if token_str.is_empty() { None } else { s.auth.verify_token(token_str).await.ok().map(|u| u.id) };
 
-    let cart = match s.cart.get_cart(&req.session_id).await {
+    let cart = match s.cart.get_cart(&checkout.session_id).await {
         Ok(c) => c,
         Err(e) => {
             tracing::error!(target: "orders::checkout", "cart fetch eșuat: {}", e);
@@ -133,6 +159,7 @@ pub async fn checkout_handler(
         },
     };
 
+    // 🏭 LogicFactory: verifică coș ne-gol
     if cart.items.is_empty() {
         debug_warn!(target: "orders::checkout", "checkout cu coșul gol");
         return if is_htmx { err_htmx("Coșul e gol") } else { error_redirect(&format!("{}/cart", bp), "Coșul e gol") };
@@ -143,12 +170,12 @@ pub async fn checkout_handler(
         .collect();
 
     let order_req = rust_marketplace_orders::PlaceOrderRequest {
-        session_id: req.session_id.clone(),
-        guest_email: req.guest_email.clone(),
-        shipping_name: req.shipping_name,
-        shipping_address: req.shipping_address,
-        shipping_phone: req.shipping_phone,
-        notes: req.notes,
+        session_id: checkout.session_id.clone(),
+        guest_email: checkout.guest_email.clone(),
+        shipping_name: checkout.shipping_name.clone(),
+        shipping_address: checkout.shipping_address.clone(),
+        shipping_phone: checkout.shipping_phone.clone(),
+        notes: checkout.notes.clone(),
     };
 
     let order = match s.orders.place_order(user_id, order_req, cart_items).await {
@@ -159,15 +186,15 @@ pub async fn checkout_handler(
         },
     };
 
-    debug_log!(target: "orders::checkout", "checkout reușit: comanda {} pentru session={}", order.id, req.session_id);
-    let _ = s.cart.clear_cart(&req.session_id).await;
+    debug_log!(target: "orders::checkout", "checkout reușit: comanda {} pentru session={}", order.id, checkout.session_id);
+    let _ = s.cart.clear_cart(&checkout.session_id).await;
 
     let checkout_req = rust_payment::CreateCheckoutRequest {
         order_id: order.id.to_string(),
         amount_bani: order.total_bani,
         currency: "ron".into(),
         success_url: format!("{}/success?order_id={}", s.site_url, order.id),
-        cancel_url: format!("{}/cart?session_id={}", s.site_url, req.session_id),
+        cancel_url: format!("{}/cart?session_id={}", s.site_url, checkout.session_id),
     };
 
     match s.payment.create_checkout(checkout_req).await {
@@ -224,11 +251,11 @@ pub async fn order_pay(
         },
     };
 
-    if order.user_id != Some(user.id) {
-        debug_warn!(target: "orders::pay", "order_pay: comanda {} nu aparține userului {}", order_id, user.id);
+    if let Err(_) = LogicFactory::verify_ownership(&user.id, &order.user_id.unwrap_or_default(), "order") {
+        debug_warn!(target: "orders::pay", "order_pay: IDOR încercat comanda {} de user {}", order_id, user.id);
         return if is_htmx { err_htmx("Nu e comanda ta") } else { error_redirect(&format!("{}/orders", bp), "Nu e comanda ta") };
     }
-    if order.payment_status == "paid" {
+    if let Err(_) = LogicFactory::verify_not_paid(&order.payment_status) {
         debug_log!(target: "orders::pay", "order_pay: comanda {} e deja plătită", order_id);
         return if is_htmx { err_htmx("Deja plătită") } else { error_redirect(&format!("{}/orders", bp), "Deja plătită") };
     }
