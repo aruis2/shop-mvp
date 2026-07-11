@@ -404,6 +404,16 @@ pub async fn stripe_webhook(
     headers: axum::http::HeaderMap,
     body: String,
 ) -> impl axum::response::IntoResponse {
+    // Parsează evenimentul Stripe — ÎNAINTE de verificarea semnăturii
+    // (JSON invalid = 400, indiferent de semnătură)
+    let event: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(target: "stripe::webhook", "JSON invalid: {e}");
+            return (axum::http::StatusCode::BAD_REQUEST, "Invalid JSON").into_response();
+        }
+    };
+
     // 🔒 Verifică semnătura Stripe webhook — esențial pentru securitate
     let sig_header = match headers.get("stripe-signature")
         .and_then(|v| v.to_str().ok())
@@ -425,15 +435,6 @@ pub async fn stripe_webhook(
         tracing::error!(target: "stripe::webhook", "Semnătură webhook invalidă — posibil atac!");
         return (axum::http::StatusCode::UNAUTHORIZED, "Invalid signature").into_response();
     }
-
-    // Parsează evenimentul Stripe
-    let event: serde_json::Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(target: "stripe::webhook", "JSON invalid: {e}");
-            return (axum::http::StatusCode::BAD_REQUEST, "Invalid JSON").into_response();
-        }
-    };
 
     let event_type = event["type"].as_str()
         .or_else(|| {

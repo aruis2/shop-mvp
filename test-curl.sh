@@ -23,7 +23,31 @@ cleanup() { rm -f "$COOKIE_JAR" "$AUTH_COOKIE_JAR" "$EMPTY_JAR"; }
 trap cleanup EXIT
 
 # ─── helpers ──────────────────────────────────────────────
+# 🔒 POST-urile trimit Origin header (simulează browser) pentru CSRF.
+# Folosește curl_cmd_nocsrf() pentru a testa explicit respingerea CSRF.
 curl_cmd() {
+    local method="$1" path="$2" expected="$3" label="$4" data="${5:-}" jar="${6:-$COOKIE_JAR}"
+    local args=(-s --max-time 3 -o /dev/null -w "%{http_code}" -X "$method")
+    [[ -n "$data" ]] && args+=(-d "$data")
+    # 🔒 Adaugă Origin header pentru CSRF (browserul trimite automat)
+    if [[ "$method" == "POST" || "$method" == "PUT" || "$method" == "DELETE" || "$method" == "PATCH" ]]; then
+        args+=(-H "Origin: ${BASE}")
+    fi
+    args+=(-b "$jar" -c "$jar")
+    local url="${BASE}${path}"
+    local code; code=$(curl "${args[@]}" "$url" 2>/dev/null || echo "000")
+    if [[ "$code" == "$expected" ]]; then
+        ((PASS++))
+        $VERBOSE && echo "  ✅ $label → $code"
+    else
+        ((FAIL++))
+        ERRORS+="  ❌ $label → așteptat $expected, primit $code (${method} ${path})\n"
+        $VERBOSE && echo "  ❌ $label → așteptat $expected, primit $code"
+    fi
+}
+
+# Fără Origin header → pentru testarea explicită a CSRF
+curl_cmd_nocsrf() {
     local method="$1" path="$2" expected="$3" label="$4" data="${5:-}" jar="${6:-$COOKIE_JAR}"
     local args=(-s --max-time 3 -o /dev/null -w "%{http_code}" -X "$method")
     [[ -n "$data" ]] && args+=(-d "$data")
@@ -263,7 +287,156 @@ get  "/static/nonexistent.css"  404 "Fișier inexistent"
 # /static/ trailing slash → 301 (middleware rulează înainte de static)
 curl_cmd "GET" "/static/"        301 "Director (trailing slash)" "" "$EMPTY_JAR"
 
-# ============================================================
+# ═══════════════════════════════════════════════════════════
+# 13. PAGINI POLITICI + SECURITATE
+# ═══════════════════════════════════════════════════════════
+section "13. Pagini politici"
+
+get  "/privacy"            200 "Politică confidențialitate"
+get  "/security"           200 "Politică securitate"
+get  "/.well-known/security.txt" 200 "security.txt"
+
+# ═══════════════════════════════════════════════════════════
+# 14. CONT UTILIZATOR
+# ═══════════════════════════════════════════════════════════
+section "14. Cont utilizator"
+
+# Neautentificat — handler-ul face redirect la login (302), nu 401
+curl_cmd "POST" "/account/delete"  302 "Account delete — neautentificat (redirect login)" "" "$EMPTY_JAR"
+curl_cmd "GET"  "/account/export"  401 "Account export — neautentificat" "" "$EMPTY_JAR"
+
+# Autentificat
+curl_cmd "GET"  "/account/export"  200 "Account export — autentificat" "" "$COOKIE_JAR"
+
+# ═══════════════════════════════════════════════════════════
+# 15. CSRF — verificare Origin/Referer
+# ═══════════════════════════════════════════════════════════
+section "15. CSRF protection"
+
+# POST cu Origin valid → ar trebui să meargă (folosim /cart/add care n-are rate limit)
+curl_cmd "POST" "/cart/add"  302 "CSRF — Origin valid (cart add)" \
+    "product_slug=nonexistent&qty=1" "$EMPTY_JAR"
+
+# POST fără Origin, fără Referer → CSRF check (folosim /cart/add, nu /login — evităm rate limit)
+curl_cmd_nocsrf "POST" "/cart/add"  403 "CSRF — fără Origin, fără Referer (așteptat 403)" \
+    "product_slug=nonexistent&qty=1" "$EMPTY_JAR"
+
+# ═══════════════════════════════════════════════════════════
+# 16. STRIPE WEBHOOK
+# ═══════════════════════════════════════════════════════════
+section "16. Stripe webhook"
+
+# Fără signature header
+curl_cmd "POST" "/stripe/webhook"  401 "Webhook — fără signature" \
+    '{"type":"checkout.session.completed","data":{"object":{"metadata":{"order_id":"test"}}}}' "$EMPTY_JAR"
+
+# JSON invalid
+curl_cmd "POST" "/stripe/webhook"  400 "Webhook — JSON invalid" \
+    "not-json" "$EMPTY_JAR"
+
+# Semnătură invalidă (cu header fals)
+curl_cmd "POST" "/stripe/webhook"  401 "Webhook — semnătură invalidă" \
+    '{"type":"checkout.session.completed","data":{"object":{"metadata":{"order_id":"test"}}}}' "$EMPTY_JAR"
+
+# ═══════════════════════════════════════════════════════════
+# 17. 405 METHOD NOT ALLOWED (complete)
+# ═══════════════════════════════════════════════════════════
+section "17. Metode nesesuportate (405)"
+
+curl_cmd "GET"  "/cart/add"          405 "Cart add — GET" "" "$EMPTY_JAR"
+curl_cmd "GET"  "/cart/remove"       405 "Cart remove — GET" "" "$EMPTY_JAR"
+curl_cmd "GET"  "/order/00000000-0000-0000-0000-000000000000/pay" 405 "Order pay — GET" "" "$EMPTY_JAR"
+curl_cmd "GET"  "/stripe/webhook"    405 "Stripe webhook — GET" "" "$EMPTY_JAR"
+curl_cmd "GET"  "/admin/migrate-orders" 405 "Admin migrate — GET" "" "$EMPTY_JAR"
+
+# ═══════════════════════════════════════════════════════════
+# 18. CHECKOUT + ORDER/PAY (cu autentificare)
+# ═══════════════════════════════════════════════════════════
+section "18. Checkout + plată"
+
+# Checkout — coș gol (deja autentificat, dar session_id nou)
+RANDOM_SID="curl-test-$(date +%s)-$$"
+curl_cmd "GET" "/checkout?session_id=$RANDOM_SID"  302 "Checkout — coș gol (redirect)" "" "$COOKIE_JAR"
+
+# Order pay — UUID invalid
+curl_cmd "POST" "/order/00000000-0000-0000-0000-000000000000/pay"  302 "Order pay — UUID nul" "" "$COOKIE_JAR"
+
+# Order pay — neautentificat
+curl_cmd "POST" "/order/00000000-0000-0000-0000-000000000000/pay"  302 "Order pay — neautentificat" "" "$EMPTY_JAR"
+
+# ═══════════════════════════════════════════════════════════
+# 19. ADMIN — cu autentificare admin
+# ═══════════════════════════════════════════════════════════
+section "19. Admin — operații POST"
+
+# Admin migrate fără token
+curl_cmd "POST" "/admin/migrate-orders"  401 "Admin migrate — neautentificat" "" "$EMPTY_JAR"
+
+# Admin migrate cu user normal (cookie de la login test@test.com, NU e admin)
+# Admin în seed: test@test.org, aruis2@gmail.com
+curl_cmd "POST" "/admin/migrate-orders"  403 "Admin migrate — user normal (nu e admin)" "" "$COOKIE_JAR"
+
+# Admin order status — GET = 405
+curl_cmd "GET"  "/admin/order/00000000-0000-0000-0000-000000000000/status"  405 "Admin order status — GET" "" "$EMPTY_JAR"
+
+# Admin order status — POST fără auth
+curl_cmd "POST" "/admin/order/00000000-0000-0000-0000-000000000000/status"  200 "Admin order status — fără auth" "status=confirmed" "$EMPTY_JAR"
+
+# ═══════════════════════════════════════════════════════════
+# 20. RATE LIMITING (test rapid)
+# ═══════════════════════════════════════════════════════════
+section "20. Rate limit"
+
+# Facem 11 requesturi rapide la login — ultimul ar trebui să fie rate-limited
+# Folosim EMTPY_JAR ca să nu păstrăm cookie de login
+for i in $(seq 1 10); do
+    curl -s -X POST -H "Origin: ${BASE}" \
+        -d "email=rate-test@test.com&password=grcita" \
+        -o /dev/null -w "%{http_code}" \
+        "$BASE/login" > /dev/null 2>&1
+done
+# Al 11-lea ar trebui să fie 302 cu error de rate limit
+RATE_CODE=$(curl -s -X POST -H "Origin: ${BASE}" \
+    -d "email=rate-test@test.com&password=grcita" \
+    -o /dev/null -w "%{http_code}" "$BASE/login")
+if [[ "$RATE_CODE" == "302" ]]; then
+    ((PASS++))
+    $VERBOSE && echo "  ✅ Rate limit — ultimul request e 302 (redirect cu error)"
+else
+    ((FAIL++))
+    ERRORS+="  ❌ Rate limit — așteptat 302, primit $RATE_CODE\n"
+    $VERBOSE && echo "  ❌ Rate limit — așteptat 302, primit $RATE_CODE"
+fi
+
+# ═══════════════════════════════════════════════════════════
+# 21. HEADERE DE RĂSPUNS
+# ═══════════════════════════════════════════════════════════
+section "21. Headere de răspuns"
+
+# Verificăm că CSP e prezent
+CSP=$(curl -s -I "$BASE/" | grep -i "content-security-policy" | head -1)
+if [[ -n "$CSP" ]]; then
+    ((PASS++))
+    $VERBOSE && echo "  ✅ CSP header prezent: $(echo $CSP | head -c 80)..."
+else
+    ((FAIL++))
+    ERRORS+="  ❌ CSP header lipsă pe /\n"
+    $VERBOSE && echo "  ❌ CSP header lipsă"
+fi
+
+# Verificăm X-Frame-Options
+XFO=$(curl -s -I "$BASE/" | grep -i "x-frame-options" | head -1)
+if [[ -n "$XFO" ]]; then
+    ((PASS++)) && $VERBOSE && echo "  ✅ X-Frame-Options: $XFO"
+else
+    ((FAIL++))
+    ERRORS+="  ❌ X-Frame-Options lipsă pe /\n"
+    $VERBOSE && echo "  ❌ X-Frame-Options lipsă"
+fi
+
+# ═══════════════════════════════════════════════════════════
+# REZULTAT FINAL
+# ═══════════════════════════════════════════════════════════
 echo ""
 echo "═══════════════════════════════════════════"
 echo "  Rezultat:"

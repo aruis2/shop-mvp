@@ -319,5 +319,186 @@
 
 | Cale | Status | Răspuns |
 |------|--------|---------|
-| `/static/style.css` | 200 | CSS |
+| `/static/style.css` | 200 | CSS (Tailwind v4, ~21KB) |
 | `/static/nonexistent.css` | 404 | Not Found |
+
+---
+
+## 10. Stripe Webhook
+
+### `POST /stripe/webhook`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Payload valid + `checkout.session.completed` | 200 | `"OK"` |
+| Payload valid + alt event (ignored) | 200 | `"Event ignored"` |
+| Payload valid + `order_id` lipsă din metadata | 200 | `"No order_id"` |
+| Payload deja procesat (idempotent) | 200 | `"Already processed"` |
+| Fără header `stripe-signature` | 401 | `"Missing signature"` |
+| Semnătură invalidă (HMAC greșit) | 401 | `"Invalid signature"` |
+| JSON invalid | 400 | `"Invalid JSON"` |
+| `STRIPE_WEBHOOK_SECRET` nesetat (dev mode) | N/A | Loghează warning, acceptă fără verificare |
+| DB update eșuează | 500 | `"DB error"` |
+
+---
+
+## 11. Securitate — middleware și protecții
+
+### 🔒 CSRF (Origin/Referer verification)
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| POST cu `Origin: http://localhost:3001` | 200/302 | Permis |
+| POST cu `Referer: http://localhost:3001/login` | 200/302 | Permis |
+| POST fără `Origin` și fără `Referer` | 403 | `"CSRF check failed"` |
+| POST cu `Origin: https://evil.com` | 403 | `"CSRF check failed"` |
+| GET/PUT/DELETE/PATCH | N/A | Verificare CSRF NU se aplică |
+| `SITE_URL` env var | N/A | Folosit ca referință pentru validare |
+| `://localhost` în Origin/Referer | 200/302 | Permis (și pentru develop) |
+
+### 🚦 Rate Limiting (login + signup)
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Primele 10 requesturi/minut la login | 200/302 | Normal |
+| Al 11-lea request în aceeași minut | 302 | Redirect la `/login?error=Prea multe încercări...` |
+| Primele 10 requesturi/minut la signup | 200/302 | Normal |
+| Al 11-lea request la signup | 302 | Redirect la `/signup?error=Prea multe încercări...` |
+| Reset după 60s | 200/302 | Contorul se resetează |
+| Rate limiter per IP | N/A | Fiecare IP are contor propriu |
+
+### 🔐 Account Lockout (login)
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| 1-4 încercări eșuate login | 302 | `?error=Invalid credentials` |
+| A 5-a încercare eșuată | 302 | `?error=Cont blocat temporar. Încearcă din nou peste 15 minute.` |
+| Login reușit după așteptare | 302 | Normal (blocajul se șterge) |
+| Login reușit înainte de blocaj | 302 | Normal + curăță contorul |
+| Cheie de lockout | `ip:email` | IP diferit = contor diferit pentru același email |
+
+---
+
+## 12. Cont utilizator
+
+### `POST /account/delete`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Neautentificat | 401 | `"Neautentificat"` |
+| Autentificat | 302 | Șterge contul + redirect la `/` |
+
+### `GET /account/export`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Neautentificat | 401 | `"Neautentificat"` |
+| Autentificat | 200 | JSON cu datele utilizatorului |
+
+---
+
+## 13. Pagini de politici
+
+### `GET /privacy`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Fără parametri | 200 | Pagină politică confidențialitate |
+
+### `GET /security`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Fără parametri | 200 | Pagină politică securitate |
+
+### `GET /.well-known/security.txt`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Fără parametri | 200 | `security.txt` (text simplu) |
+
+---
+
+## 14. Comportament POST /checkout (detaliat)
+
+### `POST /checkout` — câmpuri validate
+
+| Câmp | Obligatoriu | Validare |
+|------|-------------|----------|
+| `session_id` | Da | Alfanumeric + cratimă |
+| `shipping_name` | Da | Minim 2 caractere |
+| `shipping_address` | Da | Minim 5 caractere |
+| `shipping_phone` | Da | 10 cifre (RO) |
+| `guest_email` | Nu | Format email valid |
+| `notes` | Nu | String, fără restricții |
+
+Cazuri adiționale:
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Formular complet + coș valid | 302 | Redirect la Stripe checkout URL |
+| Formular complet + coș gol | 302 | `?error=Coșul e gol` la `/cart` |
+| Câmp obligatoriu lipsă | 302 | `?error=Cîmpul '...' lipsește` la `/checkout` |
+| Stripe eșuează | 302 | Redirect la `/orders` |
+| Neautentificat + email necompletat | 302 | `?error=...` |
+| Autentificat | N/A | `user_id` se asociază automat comenzii |
+
+---
+
+## 15. Comportament POST /order/{id}/pay (detaliat)
+
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Neautentificat (fără token) | 302 | `?error=Trebuie să fii autentificat` la `/login` |
+| Token invalid | 302 | `?error=Token invalid` la `/login` |
+| Comanda nu există | 302 | `?error=Comanda nu există` la `/orders` |
+| Comanda altui utilizator (IDOR) | 302 | `?error=Nu e comanda ta` la `/orders` |
+| Comanda deja plătită | 302 | `?error=Deja plătită` la `/orders` |
+| Valid + Stripe OK | 302 | Redirect la Stripe checkout URL |
+| Valid + Stripe eșuează | 302 | Redirect la `/orders` |
+| `user_id` null (guest) | 302 | Verify_ownership eșuează → `?error=Nu e comanda ta` |
+
+---
+
+## 16. Comportamente POST /admin (detaliat)
+
+### `POST /admin/order/{id}/status`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Neautentificat | 200 | Redirect HTML (meta refresh) la login |
+| Token valid + admin + status valid | 302 | Redirect + status actualizat |
+| Token valid + admin + status invalid | 302 | `?error=Tranziție invalidă...` |
+| Comandă inexistentă | 302 | `?error=Comanda negăsită` |
+| Status `confirmed` fără plată | 302 | `?error=Comanda nu poate fi confirmată...` |
+| Status `shipped` fără plată | 302 | `?error=Comanda nu poate fi expediată...` |
+| Status `delivered` fără `shipped` | 302 | `?error=Tranziție invalidă...` |
+| GET (method not allowed) | 405 | `405 Method Not Allowed` |
+
+### `POST /admin/migrate-orders`
+| Caz | Status | Răspuns |
+|-----|--------|---------|
+| Fără token | 401 | `"Admin: token lipsă"` |
+| Token invalid | 401 | `"Admin: token invalid"` |
+| Token valid + nu e admin | 403 | `"Admin: acces interzis"` |
+| Token valid + admin | 200 | JSON `{"migrated": N}` |
+| GET (method not allowed) | 405 | `405 Method Not Allowed` |
+
+---
+
+## 17. Metode HTTP nesesuportate (405)
+
+| Cale | Method | Status | Răspuns |
+|------|--------|--------|---------|
+| `/cart/add` | GET | 405 | `405 Method Not Allowed` |
+| `/cart/remove` | GET | 405 | `405 Method Not Allowed` |
+| `/order/{id}/pay` | GET | 405 | `405 Method Not Allowed` |
+| `/stripe/webhook` | GET | 405 | `405 Method Not Allowed` |
+| `/admin/order/{id}/status` | GET | 405 | `405 Method Not Allowed` |
+| `/admin/product/{slug}/delete` | GET | 405 | `405 Method Not Allowed` |
+| `/admin/migrate-orders` | GET | 405 | `405 Method Not Allowed` |
+| `/logout` | PUT/PATCH/DELETE | 405 | `405 Method Not Allowed` |
+
+---
+
+## 18. Headere de răspuns (toate rutele)
+
+| Header | Prezent | Detalii |
+|--------|---------|---------|
+| `Content-Type` | Da | `text/html; charset=utf-8` sau `application/json` |
+| `Content-Security-Policy` | Da | `default-src 'self'; script-src 'self'; ...` |
+| `X-Content-Type-Options` | Da | `nosniff` |
+| `X-Frame-Options` | Da | `DENY` |
+| `Set-Cookie` | La login/signup | `token=...; HttpOnly; Secure; Path=/; SameSite=Lax` |
+| `Set-Cookie` | La prima adăugare coș | `session_id=...; Path=/` |
+| `Set-Cookie` | La logout | `token=; Max-Age=0` (șterge) |
+| `Location` | La 302/301 | URL-ul de redirect |
