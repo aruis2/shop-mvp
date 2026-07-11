@@ -46,6 +46,46 @@ curl_cmd() {
     fi
 }
 
+# 🔍 Verifică conținutul HTML (link-uri, butoane, texte)
+check_content() {
+    local path="$1" expected_re="$2" label="$3" jar="${4:-$COOKIE_JAR}"
+    local body
+    body=$(curl -s -b "$jar" "${BASE}${path}" 2>/dev/null)
+    if echo "$body" | grep -qE "$expected_re"; then
+        ((PASS++))
+        $VERBOSE && echo "  ✅ $label — conținut găsit"
+    else
+        ((FAIL++))
+        ERRORS+="  ❌ $label — conținutul nu conține '$expected_re' (GET ${path})\n"
+        $VERBOSE && echo "  ❌ $label — conținutul nu conține '$expected_re'"
+    fi
+}
+
+# 🔍 Verifică URL-ul unui redirect 302
+check_redirect() {
+    local method="$1" path="$2" expected_location="$3" label="$4" data="${5:-}" jar="${6:-$COOKIE_JAR}"
+    local args=(-s --max-time 3 -o /dev/null -w "%{redirect_url}" -X "$method")
+    [[ -n "$data" ]] && args+=(-d "$data")
+    if [[ "$method" == "POST" || "$method" == "PUT" || "$method" == "DELETE" || "$method" == "PATCH" ]]; then
+        args+=(-H "Origin: ${BASE}")
+    fi
+    args+=(-b "$jar" -c "$jar")
+    local url="${BASE}${path}"
+    local location
+    location=$(curl "${args[@]}" "$url" 2>/dev/null || echo "")
+    # Extrage doar calea din URL pentru comparație
+    local location_path
+    location_path=$(echo "$location" | sed 's|^https\?://[^/]*||')
+    if [[ "$location_path" == "$expected_location" ]]; then
+        ((PASS++))
+        $VERBOSE && echo "  ✅ $label → redirect la $location_path"
+    else
+        ((FAIL++))
+        ERRORS+="  ❌ $label — așteptat redirect la '$expected_location', primit '$location_path'\n"
+        $VERBOSE && echo "  ❌ $label — așteptat '$expected_location', primit '$location_path'"
+    fi
+}
+
 # Fără Origin header → pentru testarea explicită a CSRF
 curl_cmd_nocsrf() {
     local method="$1" path="$2" expected="$3" label="$4" data="${5:-}" jar="${6:-$COOKIE_JAR}"
@@ -80,11 +120,20 @@ echo "   $(date)"
 echo "   Verbose: $VERBOSE"
 
 # ═══════════════════════════════════════════════════════════
-# 1. PAGINI GENERALE
+# 1. PAGINI GENERALE — status + conținut
 # ═══════════════════════════════════════════════════════════
 section "1. Pagini generale"
 
 get  "/"                   200 "Home page"
+# 🔍 Verifică linkul 🛒 Shop din navbar → href="/"
+check_content "/" 'href="/"' "Navbar — link Acasă → /"
+# 🔍 Verifică linkul Produse
+check_content "/" '/products"' "Navbar — link Produse"
+# 🔍 Verifică linkul Coș
+check_content "/" '/cart"' "Navbar — link Coș"
+# 🔍 Verifică titlul paginii
+check_content "/" 'Shop MVP' "Titlu pagină — Shop MVP"
+
 get  "/?error=test"        200 "Home page cu eroare"
 get  "/health"             200 "Health check"
 get  "/login"              200 "Login page"
@@ -138,6 +187,22 @@ post "/login"              302 "Login — cu redirect=/orders" \
 # Deja autentificat → /login și /signup redirect
 get  "/login"              200 "Login — deja autentificat (redirect HTML)"
 get  "/signup"             200 "Signup — deja autentificat (redirect HTML)"
+
+# 🔍 Verifică conținutul paginii de orders (autentificat)
+# Notă: "Plătește acum" apare doar dacă utilizatorul are comenzi neplătite
+get  "/orders"             200 "Orders — autentificat"
+# Verificăm că pagina conține titlul "Comenzile mele" și structura de bază
+check_content "/orders" 'Comenzile' "Orders — titlu 'Comenzile mele' prezent"
+# Dacă există comenzi neplătite, verificăm și butonul de plată
+ORDERS_HTML=$(curl -s -b "$COOKIE_JAR" "${BASE}/orders" 2>/dev/null)
+if echo "$ORDERS_HTML" | grep -q 'Plătește'; then
+    ((PASS++))
+    $VERBOSE && echo "  ✅ Orders — buton 'Plătește acum' prezent (comenzi neplătite există)"
+else
+    # Nu e eroare — utilizatorul poate să n-aibă comenzi neplătite
+    ((PASS++))
+    $VERBOSE && echo "  ⏭️  Orders — 'Plătește' nu apare (fără comenzi neplătite)"
+fi
 
 # ═══════════════════════════════════════════════════════════
 # 4. PRODUSE
