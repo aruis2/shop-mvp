@@ -1,6 +1,13 @@
 <h1 class="text-3xl font-bold mb-6">📝 Finalizare comandă</h1>
 <p class="text-gray-500 mb-6">{{ item_count }} produse • Total: <strong>{{ total_lei }} Lei</strong></p>
 
+{% if error %}
+<div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+    ❌ {{ error }}
+    <a href="{{ base_path }}/checkout" class="ml-4 text-red-800 underline">← înapoi</a>
+</div>
+{% endif %}
+
 <div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
     <div id="checkout-form">
         <form method="POST" action="{{ base_path }}/checkout" class="space-y-4">

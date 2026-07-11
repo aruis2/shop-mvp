@@ -18,6 +18,7 @@ use crate::types::output::OutputFactory;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
+use crate::url_encode::url_encode;
 use crate::{debug_warn, debug_log};
 
 /// Rate limiter pentru login/signup: 5 requesturi pe minut per IP
@@ -221,8 +222,8 @@ pub async fn signup_handler(
     let ip = client_ip(&headers);
     if !rate_limiter().check(&ip) {
         debug_warn!(target: "auth::ratelimit", "Rate limit signup de la IP={}", ip);
-        let err_enc = "Prea multe încercări. Încearcă din nou peste 1 minut.";
-        let dest = format!("{}/signup?error={}", bp, err_enc.replace(' ', "%20"));
+        let err_enc = url_encode("Prea multe încercări. Încearcă din nou peste 1 minut.");
+        let dest = format!("{}/signup?error={}", bp, err_enc);
         return safe_redirect(&dest, &bp);
     }
     let referer = headers.get("referer").and_then(|v| v.to_str().ok());
@@ -236,7 +237,7 @@ pub async fn signup_handler(
         Ok((r, _)) => auth_response(Ok((r, redirect)), &bp),
         Err(e) => {
             debug_warn!(target: "auth::signup", "signup eșuat: {} redirect={}", e, redirect);
-            let err_enc = e.replace(' ', "%20");
+            let err_enc = url_encode(&e);
             let dest = if redirect.is_empty() {
                 format!("{}/signup?error={}", bp, err_enc)
             } else {
@@ -394,8 +395,8 @@ pub async fn login_handler(
     let ip = client_ip(&headers);
     if !rate_limiter().check(&ip) {
         debug_warn!(target: "auth::ratelimit", "Rate limit login de la IP={}", ip);
-        let err_enc = "Prea multe încercări. Încearcă din nou peste 1 minut.";
-        let dest = format!("{}/login?error={}", bp, err_enc.replace(' ', "%20"));
+        let err_enc = url_encode("Prea multe încercări. Încearcă din nou peste 1 minut.");
+        let dest = format!("{}/login?error={}", bp, err_enc);
         return safe_redirect(&dest, &bp);
     }
     
@@ -404,7 +405,7 @@ pub async fn login_handler(
     if let Some(email) = &email {
         if let Err(msg) = crate::check_lockout(&ip, email) {
             debug_warn!(target: "auth::lockout", "Cont blocat: {} de la IP={}", email, ip);
-            let dest = format!("{}/login?error={}", bp, msg.replace(' ', "%20"));
+            let dest = format!("{}/login?error={}", bp, url_encode(msg));
             return safe_redirect(&dest, &bp);
         }
     }
@@ -426,7 +427,7 @@ pub async fn login_handler(
             // Login eșuat: înregistrează încercarea per IP:email
             if let Some(email) = &email { crate::record_failed_attempt(&ip, email); }
             debug_warn!(target: "auth::login", "login eșuat: {} redirect={}", e, redirect);
-            let err_enc = e.replace(' ', "%20");
+            let err_enc = url_encode(&e);
             let dest = if redirect.is_empty() {
                 format!("{}/login?error={}", bp, err_enc)
             } else {

@@ -21,6 +21,7 @@ use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
 use crate::types::QueryValidator;
+use crate::url_encode::url_encode;
 use crate::debug_warn;
 
 // ─── Helper ────────────────────────────────────────────────────
@@ -71,7 +72,7 @@ async fn verify_or_redirect(
             debug_warn!(target: "admin::verify", "verify_admin eșuat: {} {} path={}", status, msg, rp);
             if status == axum::http::StatusCode::FORBIDDEN {
                 // Autentificat dar nu e admin → redirect la home, nu la login
-                let dest = format!("{}/?error={}", bp, msg.replace(' ', "%20").replace("—", "%E2%80%94"));
+                let dest = format!("{}/?error={}", bp, url_encode(&msg));
                 Err(Html(format!(r#"<!DOCTYPE html><html><body><script>window.location.replace('{dest}');</script></body></html>"#)))
             } else {
                 // Neautentificat → redirect la login
@@ -375,18 +376,10 @@ fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Respo
         .unwrap_or_else(|| format!("{}/admin/orders", bp));
     let safe_msg = OutputFactory::safe_error_msg(msg);
     debug_warn!(target: "admin", "error_redirect: {} -> {} (referer: {})", msg, dest, referer);
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, urlencoding(&safe_msg)))]).into_response()
+    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, url_encode(&safe_msg)))]).into_response()
 }
 
-fn urlencoding(s: &str) -> String {
-    s.replace(' ', "%20").replace("—", "%E2%80%94")
-        .replace(',', "%2C").replace("ă", "%C4%83")
-        .replace("â", "%C3%A2").replace("î", "%C3%AE")
-        .replace("ș", "%C8%99").replace("ț", "%C8%9B")
-        .replace("Ă", "%C4%82").replace("Â", "%C3%82")
-        .replace("Î", "%C3%8E").replace("Ș", "%C8%98")
-        .replace("Ț", "%C8%9A")
-}
+// Folosește url_encode din crate::url_encode în loc de funcția locală
 
 pub async fn admin_order_update_status(
     State(s): State<AdminState>,

@@ -18,6 +18,7 @@ use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
 use crate::types::QueryValidator;
+use crate::url_encode::url_encode;
 use crate::{debug_warn, debug_log};
 
 /// Extrage token-ul JWT din: Authorization header > cookie > query param
@@ -38,6 +39,7 @@ fn extract_token<'a>(headers: &'a axum::http::HeaderMap) -> Option<&'a str> {
 #[derive(Deserialize)]
 pub struct CheckoutQuery {
     pub session_id: Option<String>,
+    pub error: Option<String>,
 }
 
 pub async fn checkout_page(
@@ -68,12 +70,13 @@ pub async fn checkout_page(
         return error_redirect(&format!("{}/cart", bp), "Coșul e gol");
     }
 
-    let data = serde_json::json!({
+    let mut data = serde_json::json!({
         "title": "Checkout — Shop MVP",
         "session_id": sid,
         "total_lei": format!("{:.2}", cart.total_bani as f64 / 100.0),
         "item_count": cart.item_count,
     });
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
     match render_or_err_json(&s.renderer, "orders/checkout.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
         Ok(html) => html.into_response(),
         Err((code, msg)) => (code, msg).into_response(),
@@ -96,7 +99,8 @@ fn error_redirect(dest: &str, msg: &str) -> Response {
     let safe_dest = OutputFactory::safe_redirect_url(dest, "/")
         .unwrap_or_else(|| "/".to_string());
     let safe_msg = OutputFactory::safe_error_msg(msg);
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, safe_msg))]).into_response()
+    let encoded = url_encode(&safe_msg);
+    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, encoded))]).into_response()
 }
 
 fn redirect_to_login(base_path: &str) -> Response {

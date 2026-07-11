@@ -18,6 +18,7 @@ use crate::types::parser::{parse_any_into, get_field};
 use crate::types::error::InputError;
 use crate::types::InputFactory;
 use crate::types::QueryValidator;
+use crate::url_encode::url_encode;
 use crate::debug_warn;
 
 fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> Response {
@@ -32,7 +33,7 @@ fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<
     let safe_base = OutputFactory::safe_redirect_url(&base, "/")
         .unwrap_or_else(|| fallback.to_string());
     let dest = match error {
-        Some(msg) => format!("{}?error={}", safe_base, msg.replace(' ', "%20")),
+        Some(msg) => format!("{}?error={}", safe_base, url_encode(msg)),
         None => safe_base,
     };
     (StatusCode::FOUND, [("Location", dest)]).into_response()

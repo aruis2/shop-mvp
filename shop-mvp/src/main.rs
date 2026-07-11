@@ -28,6 +28,8 @@ use rust_marketplace_orders::PgOrderRepo;
 use rust_payment::{PaymentRepo, StripePayment};
 use rust_url_normalizer::strip_trailing_slash;
 
+mod url_encode;
+
 mod cookie;
 mod debug;
 mod handlers;
