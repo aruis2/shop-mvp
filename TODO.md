@@ -139,7 +139,61 @@ if order.payment_status == "paid" {
 - [ ] Teste: încearcă toate tranzițiile invalide
 - [ ] Documentează diagrama de stări în TRUST-BOUNDARY.md
 
-### 1.5 Securitate suplimentară (tooling)
+### 1.6 🏭 LogicFactory — Uzina de logică business
+
+**Concept:** Exact cum InputFactory parsează ORICE intrare și OutputFactory sanitarizează ORICE ieșire — **LogicFactory verifică ORICE regulă de business** într-un singur loc centralizat.
+
+**Problema acum:** Verificările de autorizare, IDOR, state machine, stoc etc. sînt împrăștiate prin handlere. Unii handlere verifică, alții nu. E ușor de omis.
+
+**Soluția:** Un singur punct de validare business, apelat de toate handlerele:
+
+```rust
+// Un singur loc unde definim TOATE regulile de business
+pub struct LogicFactory;
+
+impl LogicFactory {
+    // ─── Autorizare ─────────────────────────────────
+    pub fn verify_ownership<T: Eq>(user_id: &T, owner_id: &T) -> Result<(), LogicError> {
+        (user_id == owner_id).then_some(()).ok_or(LogicError::Forbidden)
+    }
+    pub fn verify_admin(user: &CurrentUser) -> Result<(), LogicError> { ... }
+    pub fn verify_role(user: &CurrentUser, required: &str) -> Result<(), LogicError> { ... }
+
+    // ─── State machine ──────────────────────────────
+    pub fn verify_not_paid(payment_status: &str) -> Result<(), LogicError> { ... }
+    pub fn verify_status_transition(current: &str, next: &str) -> Result<(), LogicError> { ... }
+
+    // ─── Business rules ─────────────────────────────
+    pub fn verify_stock_available(stock: i32, qty: i32) -> Result<(), LogicError> { ... }
+    pub fn verify_cart_not_empty(item_count: i64) -> Result<(), LogicError> { ... }
+    pub fn verify_max_order_value(total_bani: i64, max: i64) -> Result<(), LogicError> { ... }
+    pub fn verify_payment_amount(expected: i64, actual: i64) -> Result<(), LogicError> { ... }
+}
+```
+
+**Avantaje:**
+- **O singură modificare** cînd se schimbă o regulă — nu 7 handlere
+- **Zero erori de omisiune** — toate handlerele trec prin aceleași verificări
+- **Testabil izolat** — testezi `LogicFactory` o dată, nu în fiecare handler
+- **Documentat** — citind `LogicFactory` știi TOATE regulile businessului
+
+**Cum se integrează:**
+```rust
+// În fiecare handler, înainte de orice logică:
+LogicFactory::verify_ownership(&current_user.id, &order.user_id)?;
+LogicFactory::verify_not_paid(&order.payment_status)?;
+LogicFactory::verify_stock_available(product.stock_count, req.qty)?;
+```
+
+- [ ] Creează `types/logic.rs` cu `LogicFactory` + `LogicError`
+- [ ] Migrează verificările de autorizare din handlere în LogicFactory
+- [ ] Migrează IDOR checks (ownership) în LogicFactory
+- [ ] Migrează state machine checks în LogicFactory
+- [ ] Adaugă teste unitare pentru fiecare metodă LogicFactory
+- [ ] Adaugă teste de integrare: încearcă să încalci fiecare regulă
+- [ ] Documentează în PHILOSOPHY.md: principiul #15 — LogicFactory
+
+### 1.7 Securitate suplimentară (tooling)
 - [ ] `cargo deny` — blocare dependințe cu vulnerabilități + licențe interzise
 - [ ] `cargo tarpaulin` — code coverage (minim 80%)
 - [ ] `cargo fuzz` — fuzzing pe InputFactory
