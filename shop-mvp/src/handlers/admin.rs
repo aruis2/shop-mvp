@@ -16,6 +16,7 @@ use tera::Context;
 use crate::state::AdminState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err;
+use crate::types::output::OutputFactory;
 use crate::debug_warn;
 
 fn parse_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
@@ -51,9 +52,11 @@ async fn verify_admin(
 }
 
 fn render_admin_redirect(base_path: &str, redirect_path: &str) -> Html<String> {
+    let bp = OutputFactory::text_html(base_path);
+    let rp = OutputFactory::text_html(redirect_path);
     Html(format!(r#"<!DOCTYPE html><html><body><script>
 window.location.replace('{bp}/login?redirect={rp}');
-</script></body></html>"#, bp = base_path, rp = redirect_path))
+</script></body></html>"#))
 }
 
 async fn verify_or_redirect(
@@ -347,8 +350,10 @@ fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Respo
     // Elimină ?error=... din referer ca să nu se acumuleze
     let base = referer.split('?').next().unwrap_or("");
     let dest = if base.is_empty() { format!("{}/admin/orders", bp) } else { base.to_string() };
+    // 🔒 OutputFactory: sanitizează mesajul de eroare
+    let safe_msg = OutputFactory::safe_error_msg(msg);
     debug_warn!(target: "admin", "error_redirect: {} -> {} (referer: {})", msg, dest, referer);
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", dest, urlencoding(msg)))]).into_response()
+    (StatusCode::FOUND, [("Location", format!("{}?error={}", dest, urlencoding(&safe_msg)))]).into_response()
 }
 
 fn urlencoding(s: &str) -> String {

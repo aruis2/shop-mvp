@@ -109,8 +109,11 @@ impl OutputFactory {
             return None;
         }
 
-        // Cale relativă — acceptat
+        // Cale relativă — acceptat (dar blochează protocol-relative //evil.com)
         if url.starts_with('/') {
+            if url.len() > 1 && url.as_bytes()[1] == b'/' {
+                return None; // protocol-relative URL
+            }
             if url.chars().all(|c| c.is_ascii_alphanumeric() || "/?&=.#%-_~+".contains(c)) {
                 return Some(url.to_string());
             }
@@ -379,6 +382,22 @@ mod tests {
     fn redirect_rejects_evil_scheme_case() {
         assert_eq!(
             OutputFactory::safe_redirect_url("JAVASCRIPT:alert(1)", "http://localhost:3001"),
+            None
+        );
+    }
+
+    #[test]
+    fn redirect_rejects_protocol_relative() {
+        assert_eq!(
+            OutputFactory::safe_redirect_url("//evil.com/phish", "http://localhost:3001"),
+            None
+        );
+    }
+
+    #[test]
+    fn redirect_rejects_double_slash() {
+        assert_eq!(
+            OutputFactory::safe_redirect_url("//google.com", "http://localhost:3001"),
             None
         );
     }

@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use crate::state::AuthState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err;
+use crate::types::output::OutputFactory;
 use crate::{debug_warn, debug_log};
 
 /// Rate limiter pentru login/signup: 5 requesturi pe minut per IP
@@ -260,9 +261,11 @@ pub async fn inject_user_ctx(
 }
 
 fn redirect_html(url: &str) -> Html<String> {
+    // 🔒 OutputFactory: validează URL-ul, previne XSS (javascript:) și open redirect
+    let safe_url = OutputFactory::safe_redirect_url(url, "/")
+        .unwrap_or_else(|| "/".to_string());
     Html(format!(
-        r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={url}"></head><body><script>localStorage.clear();window.location.href='{url}';</script></body></html>"#,
-        url = url
+        r#"<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url={safe_url}\"></head><body><script>localStorage.clear();window.location.href='{safe_url}';</script></body></html>"#
     ))
 }
 
