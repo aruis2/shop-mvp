@@ -128,9 +128,9 @@
 | Componentă | Ce face |
 |-----------|---------|
 | **`parser.rs`** | Parsează URL-encoded body + JSON în `FormField[]` — zero dependințe externe |
-| **`parse_any_into()`** | Acceptă JSON sau form-urlencoded, unic punct de intrare |
+| **`parse_any_into()`** | Acceptă JSON sau form-urlencoded, unic punct de intrare pentru body |
 | **`InputFactory::parse_*()`** | 17 metode care transformă `&str`/`i32` în tipuri sigure |
-| **`QueryValidator`** | Validează query params (`page`, `uuid`, `token`, `session_id`) — loghează valori invalide |
+| **`QueryValidator`** | Validează query params (`page`, `uuid`, `token`, `session_id`) + header-e (`x-session-id`) — loghează valori invalide |
 | **`cookie.rs`** | Citește/Scrie cookie-uri prin `safe_cookie_value()` |
 
 ### Ce body-uri trec prin InputFactory
@@ -146,18 +146,25 @@
 | `auth_signup` | `email`, `password` | `parse_email()` |
 | `auth_login` | `email`, `password` | `parse_email()` |
 
-### Ce query params trec prin validare
+### Ce query params + header-e trec prin validare
 
-| Query | Validare | Ce face cînd e invalid |
+| Sursă | Validare | Ce face cînd e invalid |
 |-------|----------|----------------------|
 | `?page=` | `QueryValidator::page()` → ≥ 1 | Loghează warning, default=1 |
-| `?token=` | Verificat de JWT (auth.verify_token) | 401 Unauthorized |
+| `?token=` | Verificat de JWT (`auth.verify_token()`) | 401 Unauthorized |
 | `?redirect=` | `OutputFactory::safe_redirect_url()` | Fallback la `/` |
 | `?session_id=` | `QueryValidator::session_id()` → max 256 chars | Ignorat, fallback la cookie |
 | `?order_id=` | `Uuid::parse_str()` | Ignorat (success page) |
 | `?q=` | `InputFactory::parse_search()` → max 200 chars | 400 Bad Request |
 | `?category=` | Serde parse i32 → Option | None → fără filtru |
 | `?error=` | `OutputFactory::safe_error_msg()` | Sanitarizat la afișare |
+| **Header: `x-session-id`** | `QueryValidator::session_id()` → max 256 chars | Ignorat, fallback la cookie |
+| **Header: `Cookie`** | `cookie::get_cookie()` + `safe_cookie_value()` | Token invalid → 401 |
+| **Header: `Authorization`** | `auth.verify_token()` (JWT) | 401 Unauthorized |
+| **Header: `Referer`** | `OutputFactory::safe_redirect_url()` la ieșire | Fallback la `/` |
+| **Header: `HX-Request`** | Doar verificare prezență (boolean) | - |
+| **Header: `HX-Current-Url`** | `OutputFactory::safe_redirect_url()` la ieșire | Fallback la `/` |
+| **Header: `X-Forwarded-For`** | Rate limiter (string, IP) | Rate limitat la 10/min
 
 ## Ce e la granița de ieșire (OutputFactory)
 
