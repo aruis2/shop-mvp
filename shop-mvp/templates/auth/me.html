@@ -1,0 +1,32 @@
+<div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
+    <h1 class="text-2xl font-bold mb-6">👤 Profilul meu</h1>
+
+    {% if error %}
+    <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        ❌ {{ error }}
+        <a href="{{ base_path }}/me" class="ml-4 text-red-800 underline">← înapoi</a>
+    </div>
+    {% endif %}
+
+    <div class="space-y-4">
+        <div class="border-b pb-3">
+            <label class="text-sm text-gray-500">Email</label>
+            <p class="font-medium">{{ email }}</p>
+        </div>
+        <div class="border-b pb-3">
+            <label class="text-sm text-gray-500">Nume</label>
+            <p class="font-medium">{{ name | default(value="—") }}</p>
+        </div>
+        <div class="border-b pb-3">
+            <label class="text-sm text-gray-500">Rol</label>
+            <p class="font-medium capitalize">{{ role | default(value="user") }}</p>
+        </div>
+    </div>
+
+    <div class="mt-8 flex gap-3 flex-wrap">
+        <a href="{{ base_path }}/orders" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">📦 Comenzile mele</a>
+        <form method="POST" action="{{ base_path }}/account/delete" style="display:inline">
+            <button type="submit" class="bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200">🗑️ Șterge contul</button>
+        </form>
+    </div>
+</div>

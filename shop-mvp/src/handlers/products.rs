@@ -60,6 +60,8 @@ pub async fn render_or_err_json(
 pub struct ProductsQuery {
     pub page: Option<i64>,
     pub category: Option<i32>,
+    pub added: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -154,16 +156,17 @@ pub async fn products_page(
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let page = QueryValidator::page(q.page, 1);
     let cat_id = q.category;
-    let (products, _total) = s.products.get_products(None, page, PRODUCTS_PER_PAGE)
+    let (all_products, db_total) = s.products.get_products(None, page, PRODUCTS_PER_PAGE)
         .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Filtrare pe categorii client-side (simplu, fără modificare trait)
     let products: Vec<_> = if let Some(cid) = cat_id {
-        products.into_iter().filter(|p| p.category_id == cid).collect()
+        all_products.into_iter().filter(|p| p.category_id == cid).collect()
     } else {
-        products
+        all_products
     };
-    let total = products.len() as i64;
+    // 🔒 Folosim db_total (numărul real din DB), nu products.len() (care e cel mult o pagină)
+    let total = db_total;
 
     let products_json: Vec<serde_json::Value> = products.iter().map(|p| {
         let price_lei = p.price_new.map(|v| format!("{:.2}", v as f64 / 100.0));
@@ -177,7 +180,7 @@ pub async fn products_page(
     let total_pages = ((total as f64) / PRODUCTS_PER_PAGE as f64).ceil() as i64;
     let categories = fetch_categories(&s.db).await;
 
-    let data = serde_json::json!({
+    let mut data = serde_json::json!({
         "title": "📦 Produse",
         "products": products_json,
         "categories": categories,
@@ -186,7 +189,15 @@ pub async fn products_page(
         "page": page,
         "total_pages": total_pages,
     });
+    if q.added.is_some() { data["added"] = serde_json::json!("✓ Produs adăugat în coș"); }
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
     render_or_err_json(&s.renderer, "products/products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+}
+
+#[derive(Deserialize)]
+pub struct DetailQuery {
+    pub added: Option<String>,
+    pub error: Option<String>,
 }
 
 pub async fn product_detail_page(
@@ -194,6 +205,7 @@ pub async fn product_detail_page(
     DetectBasePath(bp): DetectBasePath,
     headers: HeaderMap,
     Path(slug): Path<String>,
+    Query(q): Query<DetailQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
     let product = s.products.get_by_slug(&slug).await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -206,7 +218,7 @@ pub async fn product_detail_page(
             serde_json::json!({"key": k, "value": val})
         }).collect()
     }).unwrap_or_default();
-    let data = serde_json::json!({
+    let mut data = serde_json::json!({
         "title": format!("{} — Shop MVP", product.name),
         "product": {
             "id": product.id, "brand": product.brand, "name": product.name,
@@ -215,5 +227,7 @@ pub async fn product_detail_page(
             "specs": specs_arr, "stock_count": product.stock_count,
         },
     });
+    if q.added.is_some() { data["added"] = serde_json::json!("✓ Produs adăugat în coș"); }
+    if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
     render_or_err_json(&s.renderer, "products/product_detail.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

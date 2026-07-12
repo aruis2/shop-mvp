@@ -132,6 +132,8 @@ impl RenderService {
             if let Some(v) = ctx.get("user_email") { page_ctx.insert("user_email", v); }
             if let Some(v) = ctx.get("user_role") { page_ctx.insert("user_role", v); }
             if let Some(v) = ctx.get("is_admin") { page_ctx.insert("is_admin", v); }
+            if let Some(v) = ctx.get("added") { page_ctx.insert("added", v); }
+            if let Some(v) = ctx.get("error") { page_ctx.insert("error", v); }
 
             self.tera
                 .render("layout/page.html", &page_ctx)

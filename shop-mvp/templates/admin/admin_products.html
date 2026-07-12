@@ -1,13 +1,6 @@
 <h1 class="text-3xl font-bold mb-6">🛠️ Admin — Produse</h1>
 <p class="text-gray-500 mb-4">{{ total }} produse</p>
 
-{% if error %}
-<div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-    ❌ {{ error }}
-    <a href="{{ base_path }}/admin" class="ml-4 text-red-800 underline">← înapoi</a>
-</div>
-{% endif %}
-
 <div class="mb-4 flex gap-2">
     <a href="{{ base_path }}/admin/product/new" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">+ Adaugă produs</a>
     <a href="{{ base_path }}/admin/orders" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">📦 Comenzi</a>

@@ -43,6 +43,7 @@ fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<
 pub struct CartQuery {
     pub session_id: Option<String>,
     pub error: Option<String>,
+    pub added: Option<String>,
 }
 
 pub async fn cart_page(
@@ -66,12 +67,31 @@ pub async fn cart_page(
                 .map(|s| s.to_string())
         })
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let cart = s.cart.get_cart(&session_id).await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Dacă utilizatorul e autentificat, obține coșul și după user_id
+    let (cart, user_auth) = if let Some(token) = crate::cookie::get_cookie(
+        headers.get("cookie").and_then(|v| v.to_str().ok()).unwrap_or(""), "token"
+    ) {
+        if let Ok(user) = s.auth.verify_token(token).await {
+            let combined = s.cart.get_cart_by_user(&session_id, user.id).await
+                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            (combined, Some(user.id))
+        } else {
+            (s.cart.get_cart(&session_id).await
+                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?, None)
+        }
+    } else {
+        (s.cart.get_cart(&session_id).await
+            .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?, None)
+    };
 
     let mut total_bani: i64 = 0;
     let mut items_json: Vec<serde_json::Value> = Vec::new();
+    let mut private_items_json: Vec<serde_json::Value> = Vec::new();
+    let mut public_items_json: Vec<serde_json::Value> = Vec::new();
+    let mut private_total_bani: i64 = 0;
+    let mut public_total_bani: i64 = 0;
     for item in &cart.items {
+        let is_private = item.user_id.is_some();
         let current_price = s.products.get_by_slug(&item.product_slug).await
             .ok()
             .flatten()
@@ -80,25 +100,56 @@ pub async fn cart_page(
             .unwrap_or(item.price_bani);
         let subtotal = item.price_bani * item.qty as i64;
         total_bani += subtotal;
-        items_json.push(serde_json::json!({
+        let item_json = serde_json::json!({
             "id": item.id.to_string(), "product_name": item.product_name,
             "product_slug": item.product_slug,
             "price_lei": format!("{:.2}", item.price_bani as f64 / 100.0),
             "price_bani": item.price_bani, "qty": item.qty,
+            "is_private": is_private,
             "subtotal_lei": format!("{:.2}", subtotal as f64 / 100.0),
             "current_price_lei": format!("{:.2}", current_price as f64 / 100.0),
-        }));
+        });
+        items_json.push(item_json);
+        if is_private {
+            private_total_bani += subtotal;
+            private_items_json.push(serde_json::json!({
+                "id": item.id.to_string(), "product_name": item.product_name,
+                "product_slug": item.product_slug,
+                "price_lei": format!("{:.2}", item.price_bani as f64 / 100.0),
+                "qty": item.qty,
+                "subtotal_lei": format!("{:.2}", subtotal as f64 / 100.0),
+            }));
+        } else {
+            public_total_bani += subtotal;
+            public_items_json.push(serde_json::json!({
+                "id": item.id.to_string(), "product_name": item.product_name,
+                "product_slug": item.product_slug,
+                "price_lei": format!("{:.2}", item.price_bani as f64 / 100.0),
+                "qty": item.qty,
+                "subtotal_lei": format!("{:.2}", subtotal as f64 / 100.0),
+            }));
+        }
     }
     let total_lei = format!("{:.2}", total_bani as f64 / 100.0);
+    let private_total_lei = format!("{:.2}", private_total_bani as f64 / 100.0);
+    let public_total_lei = format!("{:.2}", public_total_bani as f64 / 100.0);
 
     let mut data = serde_json::json!({
         "title": "Coș de cumpărături — Shop MVP",
         "cart_items": items_json,
+        "private_items": private_items_json,
+        "public_items": public_items_json,
         "total_lei": total_lei,
+        "private_total_lei": private_total_lei,
+        "public_total_lei": public_total_lei,
         "item_count": cart.item_count,
+        "has_private": !private_items_json.is_empty(),
+        "has_public": !public_items_json.is_empty(),
+        "is_authenticated": user_auth.is_some(),
         "session_id": session_id,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
+    if q.added.is_some() { data["added"] = serde_json::json!("✓ Produs adăugat în coș"); }
     render_or_err_json(&s.renderer, "cart/cart.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
@@ -106,6 +157,7 @@ pub async fn cart_page(
 
 pub async fn cart_add(
     State(s): State<CartState>,
+    DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
@@ -160,12 +212,52 @@ pub async fn cart_add(
         qty,
     };
 
-    if let Err(_) = s.cart.add_item(&sid, None, req).await {
+    // 🔑 Dacă utilizatorul e autentificat, legăm itemul de user_id
+    let token = headers.get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|c| crate::cookie::get_cookie(c, "token"));
+    let user_id = match token {
+        Some(t) => s.auth.verify_token(&t).await.ok().map(|u| u.id),
+        None => None,
+    };
+    if let Err(e) = s.cart.add_item(&sid, user_id, req).await {
+        debug_warn!(target: "cart::add", "add_item eșuat: {:?} (user_id={:?})", e, user_id);
         return redirect_back(&headers, "/products", Some("Adăugare eșuată"));
     }
 
     let sid_cookie = crate::cookie::set_cookie("session_id", &sid, 86400 * 30);
-    let mut resp = redirect_back(&headers, "/products", None).into_response();
+    // 🔁 UX: după adăugare, userul rămâne la produse (nu merge la /cart)
+    // - Dacă era pe lista de produse → redirecționează înapoi la listă cu ?added=1
+    // - Dacă era pe detaliu produs → redirecționează la /products?added=1
+    // - Dacă nu avem referer → fallback la /cart?added=1
+    let dest = match headers.get("referer").and_then(|v| v.to_str().ok()) {
+        Some(referer) if referer.contains("/product/") => {
+            format!("{}/products?added=1", bp)
+        }
+        Some(referer) => {
+            // Extrage doar calea din URL (http://host/path?q= → /path)
+            let path = match referer.find("://") {
+                Some(pos) => {
+                    let after_host = &referer[pos+3..];
+                    match after_host.find('/') {
+                        Some(slash) => &after_host[slash..],
+                        None => "/",
+                    }
+                }
+                None => referer,
+            };
+            let base = path.split('?').next().unwrap_or(path);
+            let safe = OutputFactory::safe_redirect_url(base, "/")
+                .unwrap_or_else(|| format!("{}/products", bp));
+            format!("{}?added=1", safe)
+        }
+        None => {
+            // 🔗 #cart-container — păstrează poziția scroll după adăugare
+            OutputFactory::safe_redirect_url(&format!("{}/cart?added=1#cart-container", bp), "/")
+                .unwrap_or_else(|| format!("{}/cart#cart-container", bp))
+        }
+    };
+    let mut resp = (StatusCode::FOUND, [("Location", dest.as_str())]).into_response();
     resp.headers_mut().insert(
         axum::http::header::SET_COOKIE,
         axum::http::HeaderValue::from_str(&sid_cookie).unwrap(),
@@ -196,12 +288,61 @@ pub async fn cart_remove(
 
     let item_id = match uuid::Uuid::parse_str(&item_id_str) {
         Ok(id) => id,
-        Err(_) => return redirect_back(&headers, "/cart", Some("ID invalid")),
+        Err(_) => {
+            // 🔗 #cart-container — păstrează poziția scroll după redirect
+            return (StatusCode::FOUND, [("Location", "/cart?error=ID+invalid#cart-container")]).into_response();
+        }
     };
 
     if let Err(_) = s.cart.remove_item(sid, item_id).await {
-        return redirect_back(&headers, "/cart", Some("Ștergere eșuată"));
+        return (StatusCode::FOUND, [("Location", "/cart?error=Ștergere+eșuată#cart-container")]).into_response();
     }
 
-    redirect_back(&headers, "/cart", None)
+    // 🔗 #cart-container — browserul duce utilizatorul la secțiunea coș, nu sus
+    (StatusCode::FOUND, [("Location", "/cart#cart-container")]).into_response()
+}
+
+// ─── Update quantity ────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct UpdateQtyForm {
+    pub item_id: String,
+    pub qty: String,
+}
+
+pub async fn cart_update(
+    State(s): State<CartState>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let sid = headers.get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
+        .unwrap_or("anon");
+
+    // Parsează item_id și qty
+    let (item_id, qty) = match parse_any_into(&body, |fields| {
+        let id_str = get_field(fields, "item_id")?;
+        let item_id = uuid::Uuid::parse_str(id_str)
+            .map_err(|_| InputError::InvalidSlug(id_str.to_string()))?;
+        let qty_str = get_field(fields, "qty").unwrap_or("1");
+        let qty_val: i32 = qty_str.parse().unwrap_or(1);
+        let qty = InputFactory::parse_qty(qty_val)?;
+        Ok::<(uuid::Uuid, i32), InputError>((item_id, qty.get() as i32))
+    }) {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::FOUND, [("Location", "/cart?error=Date+invalide#cart-container")]).into_response(),
+    };
+
+    // Validează cantitatea
+    if let Err(_) = LogicFactory::verify_qty_in_range(qty, 1, s.max_qty) {
+        return (StatusCode::FOUND, [("Location", "/cart?error=Cantitate+invalidă#cart-container")]).into_response();
+    }
+
+    if let Err(_) = s.cart.update_qty(sid, item_id, qty).await {
+        return (StatusCode::FOUND, [("Location", "/cart?error=Actualizare+eșuată#cart-container")]).into_response();
+    }
+
+    // 🔗 #cart-container — browserul duce utilizatorul la secțiunea coș, nu sus
+    (StatusCode::FOUND, [("Location", "/cart#cart-container")]).into_response()
 }

@@ -46,20 +46,26 @@ pub trait CartRepo: Send + Sync {
     /// Creează tabela `cart_items` dacă nu există
     async fn migrate(&self) -> Result<(), CartError>;
 
-    /// Obține coșul unei sesiuni (sau utilizator)
+    /// Obține coșul unei sesiuni
     async fn get_cart(&self, session_id: &str) -> Result<Cart, CartError>;
+
+    /// Obține coșul unui utilizator autentificat (pe lângă session_id)
+    async fn get_cart_by_user(&self, session_id: &str, user_id: Uuid) -> Result<Cart, CartError>;
+
+    /// Obține DOAR coșul privat (iteme cu user_id, fără session_id)
+    async fn get_private_cart(&self, user_id: Uuid) -> Result<Cart, CartError>;
 
     /// Adaugă un produs în coș (sau incrementează cantitatea dacă există deja)
     async fn add_item(&self, session_id: &str, user_id: Option<Uuid>, req: AddCartItemRequest) -> Result<AddItemResponse, CartError>;
 
     /// Șterge un item din coș
-    async fn remove_item(&self, session_id: &str, item_id: Uuid) -> Result<(), CartError>;
+    async fn remove_item(&self, _session_id: &str, item_id: Uuid) -> Result<(), CartError>;
 
     /// Actualizează cantitatea unui item
-    async fn update_qty(&self, session_id: &str, item_id: Uuid, qty: i32) -> Result<CartItem, CartError>;
+    async fn update_qty(&self, _session_id: &str, item_id: Uuid, qty: i32) -> Result<CartItem, CartError>;
 
-    /// Golește coșul
-    async fn clear_cart(&self, session_id: &str) -> Result<(), CartError>;
+    /// Golește coșul (session_id pentru publice, user_id pentru private)
+    async fn clear_cart(&self, session_id: &str, user_id: Option<Uuid>) -> Result<(), CartError>;
 
     /// Asociază un coș anonim cu un utilizator autentificat (după login)
     async fn assign_to_user(&self, session_id: &str, user_id: Uuid) -> Result<(), CartError>;

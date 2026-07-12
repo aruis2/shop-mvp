@@ -1,5 +1,11 @@
 <h1 class="text-3xl font-bold mb-6">🛒 Coșul meu</h1>
 
+{% if added %}
+<div class="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+    {{ added }}
+</div>
+{% endif %}
+
 {% if error %}
 <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
     ❌ {{ error }}
@@ -9,26 +15,39 @@
 
 {% if cart_items | length == 0 %}
     <div class="bg-white rounded-lg shadow p-6">
-        <p class="text-gray-400 text-center py-8">Coșul e gol.</p>
+        <p class="text-gray-400 text-center py-4">Coșul e gol.</p>
+        <div class="text-center pb-4">
+            <a href="{{ base_path }}/products" class="text-blue-600 hover:text-blue-800 underline">Continuă cumpărăturile →</a>
+        </div>
     </div>
 {% else %}
     <div id="cart-container">
-        <div class="bg-white rounded-lg shadow p-6">
+
+        {% if is_authenticated and has_private %}
+        {# ─── Secțiunea privată ─── #}
+        <div class="bg-white rounded-lg shadow p-6 mb-4">
+            <h2 class="text-lg font-bold mb-3">🔒 Coșul tău privat</h2>
+            <p class="text-xs text-gray-500 mb-3">Disponibil pe orice browser după autentificare.</p>
             <table class="w-full">
                 <tr class="border-b text-left">
                     <th class="pb-2">Produs</th>
-                    <th class="pb-2">Preț coș</th>
-                    <th class="pb-2">Preț curent</th>
+                    <th class="pb-2">Preț</th>
                     <th class="pb-2">Cant.</th>
                     <th class="pb-2">Subtotal</th>
                     <th></th>
                 </tr>
-                {% for item in cart_items %}
+                {% for item in private_items %}
                 <tr class="border-b" id="cart-row-{{ item.id }}">
                     <td class="py-2">{{ item.product_name }}</td>
                     <td class="py-2">{{ item.price_lei }} Lei</td>
-                    <td class="py-2">{{ item.current_price_lei }} Lei</td>
-                    <td class="py-2">{{ item.qty }}</td>
+                    <td class="py-2">
+                        <form method="POST" action="{{ base_path }}/cart/update" style="display:inline-flex;align-items:center;gap:4px">
+                            <input type="hidden" name="item_id" value="{{ item.id }}">
+                            <button type="submit" name="qty" value="{{ item.qty - 1 }}" {% if item.qty <= 1 %}disabled class="text-gray-300 cursor-not-allowed"{% else %}class="text-blue-600 hover:text-blue-800 font-bold text-lg"{% endif %} style="width:28px;height:28px;border:1px solid #ddd;border-radius:4px;background:#f9f9f9">−</button>
+                            <span class="mx-1 font-semibold min-w-[20px] text-center">{{ item.qty }}</span>
+                            <button type="submit" name="qty" value="{{ item.qty + 1 }}" class="text-blue-600 hover:text-blue-800 font-bold text-lg" style="width:28px;height:28px;border:1px solid #ddd;border-radius:4px;background:#f9f9f9">+</button>
+                        </form>
+                    </td>
                     <td class="py-2 font-semibold">{{ item.subtotal_lei }} Lei</td>
                     <td class="py-2">
                         <form method="POST" action="{{ base_path }}/cart/remove" style="display:inline">
@@ -39,12 +58,68 @@
                 </tr>
                 {% endfor %}
             </table>
+            <p class="text-right font-bold mt-2">Total privat: {{ private_total_lei }} Lei</p>
         </div>
+        {% endif %}
+
+        {% if has_public %}
+        {# ─── Secțiunea publică ─── #}
+        <div class="bg-white rounded-lg shadow p-6 mb-4">
+            <h2 class="text-lg font-bold mb-3">📦 Produse din sesiunea anterioară</h2>
+            {% if is_authenticated %}
+            <p class="text-xs text-gray-500 mb-3">Adăugate înainte de autentificare. Nu sunt legate de contul tău — poți comanda doar privat dacă preferi.</p>
+            {% endif %}
+            <table class="w-full">
+                <tr class="border-b text-left">
+                    <th class="pb-2">Produs</th>
+                    <th class="pb-2">Preț</th>
+                    <th class="pb-2">Cant.</th>
+                    <th class="pb-2">Subtotal</th>
+                    <th></th>
+                </tr>
+                {% for item in public_items %}
+                <tr class="border-b" id="cart-row-{{ item.id }}">
+                    <td class="py-2">{{ item.product_name }}</td>
+                    <td class="py-2">{{ item.price_lei }} Lei</td>
+                    <td class="py-2">
+                        <form method="POST" action="{{ base_path }}/cart/update" style="display:inline-flex;align-items:center;gap:4px">
+                            <input type="hidden" name="item_id" value="{{ item.id }}">
+                            <button type="submit" name="qty" value="{{ item.qty - 1 }}" {% if item.qty <= 1 %}disabled class="text-gray-300 cursor-not-allowed"{% else %}class="text-blue-600 hover:text-blue-800 font-bold text-lg"{% endif %} style="width:28px;height:28px;border:1px solid #ddd;border-radius:4px;background:#f9f9f9">−</button>
+                            <span class="mx-1 font-semibold min-w-[20px] text-center">{{ item.qty }}</span>
+                            <button type="submit" name="qty" value="{{ item.qty + 1 }}" class="text-blue-600 hover:text-blue-800 font-bold text-lg" style="width:28px;height:28px;border:1px solid #ddd;border-radius:4px;background:#f9f9f9">+</button>
+                        </form>
+                    </td>
+                    <td class="py-2 font-semibold">{{ item.subtotal_lei }} Lei</td>
+                    <td class="py-2">
+                        <form method="POST" action="{{ base_path }}/cart/remove" style="display:inline">
+                            <input type="hidden" name="item_id" value="{{ item.id }}">
+                            <button type="submit" class="text-red-600 text-sm hover:text-red-800">Șterge</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            <p class="text-right font-bold mt-2">Total sesiune: {{ public_total_lei }} Lei</p>
+        </div>
+        {% endif %}
+
+        {# ─── Butoane checkout ─── #}
         <div class="mt-4 bg-white rounded-lg shadow p-6 text-right">
             <p class="text-xl font-bold">Total: {{ total_lei }} Lei</p>
+            {% if is_authenticated and has_private %}
+            <div class="mt-3 flex gap-3 justify-end">
+                <a href="{{ base_path }}/checkout?cart=private" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+                    Cumpără doar privat ({{ private_total_lei }} Lei)
+                </a>
+                <a href="{{ base_path }}/checkout" class="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">
+                    Cumpără tot ({{ total_lei }} Lei)
+                </a>
+            </div>
+            {% else %}
             <a href="{{ base_path }}/checkout" class="inline-block mt-4 bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">
                 Finalizează comandă
             </a>
+            {% endif %}
         </div>
     </div>
 {% endif %}

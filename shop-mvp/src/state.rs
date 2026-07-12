@@ -42,6 +42,7 @@ impl FromRef<AppState> for AuthState {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth: state.auth.clone(),
+            cart: state.cart.clone(),
             renderer: state.renderer.clone(),
             site_url: state.site_url.clone(),
         }
@@ -107,6 +108,7 @@ impl FromRef<AppState> for AdminState {
 #[derive(Clone)]
 pub struct AuthState {
     pub auth: Arc<dyn AuthRepo>,
+    pub cart: Arc<dyn CartRepo>,
     pub renderer: RenderService,
     pub site_url: String,
 }

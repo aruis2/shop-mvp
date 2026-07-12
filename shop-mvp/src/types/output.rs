@@ -155,10 +155,17 @@ impl OutputFactory {
     // ─── Context sanitization (Tera) ──────────────────────
     /// Sanitizează un serde_json::Value înainte de Tera render.
     /// Walk recursiv, html_encode pe toate string-urile.
+    /// 🔒 Sanitizare context: elimină caractere periculoase, DAR nu HTML-encode.
+    /// Tera face auto-escape la HTML (configurat în RenderService).
+    /// Dacă am face html_encode AICI, am produce dublu-escape (ex: " → &quot; → &amp;quot;).
     pub fn sanitize_context(ctx: &serde_json::Value) -> serde_json::Value {
         match ctx {
             serde_json::Value::String(s) => {
-                serde_json::Value::String(html_encode(s))
+                // Elimină caractere de control și null bytes (periculoase în orice context)
+                let cleaned: String = s.chars()
+                    .filter(|c| !c.is_control() || *c == '\n' || *c == '\r' || *c == '\t')
+                    .collect();
+                serde_json::Value::String(cleaned)
             }
             serde_json::Value::Array(arr) => {
                 serde_json::Value::Array(arr.iter().map(|v| Self::sanitize_context(v)).collect())

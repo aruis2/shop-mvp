@@ -6,7 +6,6 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
-    Json,
 };
 use serde::Deserialize;
 
@@ -306,12 +305,15 @@ pub async fn inject_user_ctx_json(
 ) {
     if let Some(u) = current_user(headers, auth).await {
         if let serde_json::Value::Object(map) = data {
+            map.insert("is_authenticated".to_string(), serde_json::json!(true));
             map.insert("user_email".to_string(), serde_json::json!(u.email));
             map.insert("user_role".to_string(), serde_json::json!(u.role));
             if u.role == "admin" {
                 map.insert("is_admin".to_string(), serde_json::json!(true));
             }
         }
+    } else if let serde_json::Value::Object(map) = data {
+        map.insert("is_authenticated".to_string(), serde_json::json!(false));
     }
 }
 
@@ -324,32 +326,50 @@ fn safe_redirect(dest: &str, _bp: &str) -> Response {
 
 fn redirect_html(url: &str) -> Html<String> {
     // 🔒 OutputFactory: validează URL-ul, previne XSS (javascript:) și open redirect
+    // 🔒 Fără inline script (blocat de CSP script-src 'self'). Meta refresh e 100% HTML, nu JS.
     let safe_url = OutputFactory::safe_redirect_url(url, "/")
         .unwrap_or_else(|| "/".to_string());
     Html(format!(
-        r#"<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url={safe_url}\"></head><body><script>localStorage.clear();window.location.href='{safe_url}';</script></body></html>"#
+        r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_url}"></head><body><p><a href="{safe_url}">Continuă</a></p></body></html>"#
     ))
 }
 
-/// GET /me — returnează user-ul din token cookie (pentru restaurare localStorage)
+/// GET /me — pagină HTML cu profilul utilizatorului
 pub async fn me_handler(
     State(s): State<AuthState>,
+    DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let token = headers.get("cookie")
+) -> Response {
+    let token = match headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "token"))
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Neautentificat".to_string()))?;
-    
-    let user = s.auth.verify_token(token).await
-        .map_err(|e| (StatusCode::UNAUTHORIZED, e.to_string()))?;
-    
-    Ok(Json(serde_json::json!({
-        "id": user.id,
+    {
+        Some(t) => t.to_string(),
+        None => {
+            let dest = format!("{}/login?error={}", bp, url_encode("Trebuie să fii autentificat"));
+            return safe_redirect(&dest, &bp);
+        }
+    };
+
+    let user = match s.auth.verify_token(&token).await {
+        Ok(u) => u,
+        Err(_) => {
+            let dest = format!("{}/login?error={}", bp, url_encode("Token invalid"));
+            return safe_redirect(&dest, &bp);
+        }
+    };
+
+    let data = serde_json::json!({
+        "title": "Profil — Shop MVP",
         "email": user.email,
         "name": user.name,
-        "role": user.role
-    })))
+        "role": user.role,
+    });
+
+    match render_or_err_json(&s.renderer, "auth/me.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
+        Ok(html) => html.into_response(),
+        Err((code, msg)) => (code, msg).into_response(),
+    }
 }
 
 /// Extrage calea dintr-un Referer URL: http://host/path → Some("/path")
@@ -428,6 +448,8 @@ pub async fn login_handler(
         Ok((r, _)) => {
             // Login reușit: resetează lockout per IP:email
             if let Some(email) = &email { crate::clear_lockout(&ip, email); }
+            // NOTĂ: Coșul anonim NU se unește cu utilizatorul la login.
+            // Itemele adăugate cât ești logat au deja user_id (vezi cart_add).
             auth_response(Ok((r, redirect)), &bp)
         }
         Err(e) => {

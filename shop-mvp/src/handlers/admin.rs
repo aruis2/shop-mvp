@@ -53,9 +53,11 @@ async fn verify_admin(
 fn render_admin_redirect(base_path: &str, redirect_path: &str) -> Html<String> {
     let bp = OutputFactory::text_html(base_path);
     let rp = OutputFactory::text_html(redirect_path);
-    Html(format!(r#"<!DOCTYPE html><html><body><script>
-window.location.replace('{bp}/login?redirect={rp}');
-</script></body></html>"#))
+    // 🔒 Fără inline script (blocat de CSP script-src 'self').
+    // Meta refresh e 100% HTML, nu JS — respectă CSP.
+    let url = format!("{}/login?redirect={}", bp, rp);
+    let safe_url = OutputFactory::text_html(&url);
+    Html(format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_url}"></head><body><p><a href="{safe_url}">Continuă</a></p></body></html>"#))
 }
 
 async fn verify_or_redirect(
@@ -73,7 +75,8 @@ async fn verify_or_redirect(
             if status == axum::http::StatusCode::FORBIDDEN {
                 // Autentificat dar nu e admin → redirect la home, nu la login
                 let dest = format!("{}/?error={}", bp, url_encode(&msg));
-                Err(Html(format!(r#"<!DOCTYPE html><html><body><script>window.location.replace('{dest}');</script></body></html>"#)))
+                let safe_dest = OutputFactory::text_html(&dest);
+                Err(Html(format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_dest}"></head><body><p><a href="{safe_dest}">Continuă</a></p></body></html>"#)))
             } else {
                 // Neautentificat → redirect la login
                 Err(render_admin_redirect(bp, &rp))
@@ -415,7 +418,9 @@ pub async fn admin_order_update_status(
 
     let needs_payment = ["confirmed", "shipped", "delivered"];
     if needs_payment.contains(&status.as_str()) {
-        if let Err(_) = LogicFactory::verify_not_paid(&order.payment_status) {
+        // 🔒 verify_not_paid returnează Ok(când e unpaid), Err(când e paid)
+        // Noi vrem invers: dacă e unpaid (Ok) → eroare, dacă e paid (Err) → ok
+        if LogicFactory::verify_not_paid(&order.payment_status).is_ok() {
             let status_label = match status.as_str() {
                 "confirmed" => "confirmată",
                 "shipped" => "expediată",
@@ -449,7 +454,9 @@ pub async fn admin_order_update_status(
         return error_redirect(&headers, &bp, &e.to_string());
     }
 
-    redirect_to_admin(&headers, &bp)
+    // 🔁 Redirect înapoi la /admin/orders, nu la /admin
+    let dest = format!("{}/admin/orders", bp);
+    (StatusCode::FOUND, [("Location", dest)]).into_response()
 }
 
 pub async fn admin_migrate_orders(

@@ -25,7 +25,7 @@ use rust_marketplace_products::{PgProductRepo, ProductRepo};
 use rust_auth::PgAuthRepo;
 use rust_cart::PgCartRepo;
 use rust_marketplace_orders::PgOrderRepo;
-use rust_payment::{PaymentRepo, StripePayment};
+use rust_payment::{PaymentRepo, StripePayment, MockPayment};
 use rust_url_normalizer::strip_trailing_slash;
 
 mod url_encode;
@@ -149,10 +149,17 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🧱 Comenzi asamblat");
 
     // Stripe cu error boundary (retry + timeout)
-    let payment: Arc<dyn PaymentRepo> = Arc::new(RetryPayment::new(
-        Arc::new(StripePayment::new(&stripe_secret))
-    ));
-    tracing::info!("💳 Stripe asamblat (cu retry boundary)");
+    // 🔧 Dacă MOCK_PAYMENT=true, folosește plată instant (fără Stripe)
+    let mock_payment = std::env::var("MOCK_PAYMENT").ok();
+    let payment: Arc<dyn PaymentRepo> = if mock_payment.as_deref() == Some("true") {
+        tracing::warn!("🔧 MOCK_PAYMENT=true — plată instant, fără Stripe!");
+        Arc::new(MockPayment::new())
+    } else {
+        Arc::new(RetryPayment::new(
+            Arc::new(StripePayment::new(&stripe_secret))
+        ))
+    };
+    tracing::info!("💳 Payment asamblat");
 
     // --- RenderService (singurul punct de contact cu Tera) ---
     let mut tera = Tera::new();
@@ -200,6 +207,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/cart", get(handlers::cart::cart_page))
         .route("/cart/add", post(handlers::cart::cart_add))
         .route("/cart/remove", post(handlers::cart::cart_remove))
+        .route("/cart/update", post(handlers::cart::cart_update))
         .with_state(state.clone());
 
     // 🟠 Comenzi + Checkout — orders + cart + payment + auth
@@ -273,7 +281,7 @@ async fn main() -> anyhow::Result<()> {
     for route in &[
         "GET/POST /", "GET /products", "GET /product/{slug}", "GET /search",
         "GET/POST /login", "GET/POST /signup", "GET/POST /logout", "GET /me",
-        "GET /cart", "POST /cart/add", "POST /cart/remove",
+        "GET /cart", "POST /cart/add", "POST /cart/remove", "POST /cart/update",
         "GET /checkout", "POST /checkout",
         "GET /orders", "POST /order/{id}/pay",
         "GET /success",
@@ -527,10 +535,10 @@ async fn security_headers(
     // pentru că browserul upgradează http:// → https:// și 'self' nu mai corespunde).
     let csp = match std::env::var("APP_ENV").unwrap_or_default().as_str() {
         "prod" | "production" => {
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
         }
         _ => {
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
         }
     };
     parts.headers.insert(

@@ -26,6 +26,7 @@
                 <span id="userInfo" class="ml-2">
                 {% if user_email %}
                     <span class="text-gray-600 mr-2">{{ user_email }}</span>
+                    <a href="{{ base_path }}/me" class="text-gray-600 hover:text-black focus:outline-2 focus:outline-blue-500 rounded" aria-label="Profil">Profil</a>
                     <a href="{{ base_path }}/logout" class="text-red-600 hover:text-red-800 focus:outline-2 focus:outline-blue-500 rounded" aria-label="Deconectare">Logout</a>
                     <a href="{{ base_path }}/orders" class="text-gray-600 hover:text-black ml-4 focus:outline-2 focus:outline-blue-500 rounded" aria-label="Comenzile mele">Comenzi</a>
                     {% if is_admin %}
@@ -40,6 +41,16 @@
     </header>
 
     <main id="main-content" role="main" class="max-w-7xl mx-auto px-4 py-8">
+        {% if added %}
+        <div class="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+            ✓ Produs adăugat în <a href="{{ base_path }}/cart" class="text-green-800 underline font-medium">coș</a>
+        </div>
+        {% endif %}
+        {% if error %}
+        <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            ❌ {{ error }}
+        </div>
+        {% endif %}
         {% block content %}{% endblock content %}
     </main>
 

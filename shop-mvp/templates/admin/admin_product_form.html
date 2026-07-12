@@ -1,16 +1,5 @@
 <h1 class="text-3xl font-bold mb-6">{% if product %}✏️ Editează{% else %}➕ Adaugă{% endif %} produs</h1>
 
-{% if error %}
-<div class="mb-4 max-w-lg mx-auto bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-    ❌ {{ error }}
-    {% if product %}
-    <a href="{{ base_path }}/admin/product/{{ product.slug }}/edit" class="ml-4 text-red-800 underline">← înapoi</a>
-    {% else %}
-    <a href="{{ base_path }}/admin/product/new" class="ml-4 text-red-800 underline">← înapoi</a>
-    {% endif %}
-</div>
-{% endif %}
-
 <div class="max-w-lg mx-auto bg-white rounded-lg shadow p-6">
     <div id="product-form">
         {% set form_action = base_path ~ "/admin/product/new" %}

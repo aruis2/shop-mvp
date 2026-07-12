@@ -40,6 +40,7 @@ fn extract_token<'a>(headers: &'a axum::http::HeaderMap) -> Option<&'a str> {
 pub struct CheckoutQuery {
     pub session_id: Option<String>,
     pub error: Option<String>,
+    pub cart: Option<String>, // "private" = doar itemele cu user_id; orice altceva = tot
 }
 
 pub async fn checkout_page(
@@ -60,9 +61,36 @@ pub async fn checkout_page(
             .map(|s| s.to_string())
     }).unwrap_or_else(|| "anon".to_string());
 
-    let cart = match s.cart.get_cart(&sid).await {
-        Ok(c) => c,
-        Err(e) => return error_redirect(&format!("{}/cart", bp), &e.to_string()),
+    // Dacă utilizatorul e autentificat, include și itemele private (user_id)
+    let token = headers.get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|c| crate::cookie::get_cookie(c, "token"));
+    let cart = match token {
+        Some(t) => match s.auth.verify_token(t).await {
+            Ok(u) => {
+                if q.cart.as_deref() == Some("private") {
+                    // 🛒 Doar coșul privat (iteme cu user_id) — urmărește utilizatorul
+                    match s.cart.get_private_cart(u.id).await {
+                        Ok(c) => c,
+                        Err(e) => return error_redirect(&format!("{}/cart", bp), &e.to_string()),
+                    }
+                } else {
+                    // 🛒 Coș complet: privat + public (session_id + user_id)
+                    match s.cart.get_cart_by_user(&sid, u.id).await {
+                        Ok(c) => c,
+                        Err(e) => return error_redirect(&format!("{}/cart", bp), &e.to_string()),
+                    }
+                }
+            },
+            Err(_) => match s.cart.get_cart(&sid).await {
+                Ok(c) => c,
+                Err(e) => return error_redirect(&format!("{}/cart", bp), &e.to_string()),
+            },
+        },
+        None => match s.cart.get_cart(&sid).await {
+            Ok(c) => c,
+            Err(e) => return error_redirect(&format!("{}/cart", bp), &e.to_string()),
+        },
     };
 
     // 🏭 LogicFactory: verifică coș ne-gol
@@ -70,9 +98,17 @@ pub async fn checkout_page(
         return error_redirect(&format!("{}/cart", bp), "Coșul e gol");
     }
 
+    // 🔑 Dacă e coș privat, prefixăm session_id cu "private_" pentru ca
+    // checkout_handler să știe că doar itemele private trebuie cumpărate/șterse.
+    let form_session_id = if q.cart.as_deref() == Some("private") {
+        format!("private_{}", sid)
+    } else {
+        sid.clone()
+    };
+
     let mut data = serde_json::json!({
         "title": "Checkout — Shop MVP",
-        "session_id": sid,
+        "session_id": form_session_id,
         "total_lei": format!("{:.2}", cart.total_bani as f64 / 100.0),
         "item_count": cart.item_count,
     });
@@ -91,6 +127,7 @@ struct CheckoutParsed {
     shipping_address: String,
     shipping_phone: String,
     notes: Option<String>,
+    is_private: bool,
 }
 
 fn error_redirect(dest: &str, msg: &str) -> Response {
@@ -121,7 +158,10 @@ pub async fn checkout_handler(
 
     // 🏭 InputFactory: parsează și validează TOT inputul
     let checkout = match parse_any_into(&body, |fields| {
-        let session_id = InputFactory::parse_session_id(get_field(fields, "session_id")?)?;
+        let raw = get_field(fields, "session_id")?;
+        let is_private = raw.starts_with("private_");
+        let clean = if is_private { &raw[8..] } else { raw };
+        let session_id = InputFactory::parse_session_id(clean)?;
         let guest_email = get_field(fields, "guest_email").ok()
             .and_then(|s| if s.is_empty() { None } else { Some(s.to_string()) });
         let shipping_name = InputFactory::parse_name(get_field(fields, "shipping_name")?)?;
@@ -137,6 +177,7 @@ pub async fn checkout_handler(
             shipping_name: shipping_name.to_string(),
             shipping_address: shipping_address.to_string(),
             shipping_phone: shipping_phone.to_string(),
+            is_private,
             notes,
         })
     }) {
@@ -152,11 +193,36 @@ pub async fn checkout_handler(
 
     let user_id = if token_str.is_empty() { None } else { s.auth.verify_token(token_str).await.ok().map(|u| u.id) };
 
-    let cart = match s.cart.get_cart(&checkout.session_id).await {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(target: "orders::checkout", "cart fetch eșuat: {}", e);
-            return error_redirect(&format!("{}/checkout", bp), &e.to_string());
+    // Dacă utilizatorul e autentificat, include și itemele private (user_id)
+    let is_private = checkout.is_private;
+    let cart = match user_id {
+        Some(uid) => {
+            if is_private {
+                // 🛒 Doar coșul privat
+                match s.cart.get_private_cart(uid).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(target: "orders::checkout", "cart fetch eșuat: {}", e);
+                        return error_redirect(&format!("{}/checkout", bp), &e.to_string());
+                    },
+                }
+            } else {
+                // 🛒 Coș complet: privat + public
+                match s.cart.get_cart_by_user(&checkout.session_id, uid).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(target: "orders::checkout", "cart fetch eșuat: {}", e);
+                        return error_redirect(&format!("{}/checkout", bp), &e.to_string());
+                    },
+                }
+            }
+        },
+        None => match s.cart.get_cart(&checkout.session_id).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(target: "orders::checkout", "cart fetch eșuat: {}", e);
+                return error_redirect(&format!("{}/checkout", bp), &e.to_string());
+            },
         },
     };
 
@@ -187,8 +253,18 @@ pub async fn checkout_handler(
         },
     };
 
-    debug_log!(target: "orders::checkout", "checkout reușit: comanda {} pentru session={}", order.id, checkout.session_id);
-    let _ = s.cart.clear_cart(&checkout.session_id).await;
+    debug_log!(target: "orders::checkout", "checkout reușit: comanda {} pentru session={} (private={})", order.id, checkout.session_id, is_private);
+    // 🔒 Ștergem doar itemele care au fost cumpărate
+    // is_private=true → ștergem doar itemele private (user_id)
+    // is_private=false → ștergem tot (public + privat)
+    if is_private {
+        // Doar private → ștergem doar itemele private
+        if let Some(uid) = user_id {
+            let _ = s.cart.clear_cart(&"", Some(uid)).await;
+        }
+    } else {
+        let _ = s.cart.clear_cart(&checkout.session_id, user_id).await;
+    }
 
     let checkout_req = rust_payment::CreateCheckoutRequest {
         order_id: order.id.to_string(),
@@ -199,13 +275,21 @@ pub async fn checkout_handler(
     };
 
     match s.payment.create_checkout(checkout_req).await {
-        Ok(stripe_session) => {
-            let _ = s.orders.set_payment_info(order.id, "stripe", &stripe_session.session_id).await;
-            // 302 redirect la Stripe — funcționează și pentru form POST
-            (StatusCode::FOUND, [("Location", stripe_session.checkout_url)]).into_response()
+        Ok(payment_session) => {
+            let provider = if payment_session.session_id.starts_with("mock_") { "mock" } else { "stripe" };
+            let _ = s.orders.set_payment_info(order.id, provider, &payment_session.session_id).await;
+
+            // 🔧 Mock payment: marchează imediat ca plătit
+            if provider == "mock" {
+                let _ = s.orders.update_payment_status(order.id, "paid").await;
+                tracing::info!(target: "orders::checkout", "✅ Mock plată instant pentru comanda {}", order.id);
+            }
+
+            // 302 redirect la Stripe sau la success_url (mock)
+            (StatusCode::FOUND, [("Location", payment_session.checkout_url)]).into_response()
         }
         Err(e) => {
-            tracing::error!(target: "orders::stripe", "Stripe checkout eșuat: {}", e);
+            tracing::error!(target: "orders::stripe", "Checkout eșuat: {}", e);
             let tk = if token_str.is_empty() { String::new() } else { format!("?token={}", token_str) };
             let dest = format!("{}/orders{}", bp, tk);
             (StatusCode::FOUND, [("Location", dest)]).into_response()
@@ -266,11 +350,17 @@ pub async fn order_pay(
 
     match s.payment.create_checkout(checkout_req).await {
         Ok(session) => {
-            // 302 redirect la Stripe — funcționează și pentru form POST
+            // 🔧 Mock payment: marchează imediat ca plătit
+            if session.session_id.starts_with("mock_") {
+                let _ = s.orders.set_payment_info(order.id, "mock", &session.session_id).await;
+                let _ = s.orders.update_payment_status(order.id, "paid").await;
+                tracing::info!(target: "orders::pay", "✅ Mock plată instant pentru comanda {}", order.id);
+            }
+            // 302 redirect la Stripe sau la success_url (mock)
             (StatusCode::FOUND, [("Location", session.checkout_url)]).into_response()
         }
         Err(e) => {
-            tracing::error!(target: "orders::pay", "Stripe checkout eșuat pentru comanda {}: {}", order_id, e);
+            tracing::error!(target: "orders::pay", "Checkout eșuat pentru comanda {}: {}", order_id, e);
             error_redirect(&format!("{}/orders", bp), &e.to_string())
         }
     }
@@ -344,17 +434,41 @@ pub async fn success_page(
     headers: axum::http::HeaderMap,
     Query(q): Query<SuccessQuery>,
 ) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    // 🔒 Nu mai marcăm plata ca plătită aici — asta face doar Stripe webhook.
-    // Anterior: `update_payment_status(order_id, "paid")` — gaură de securitate:
-    // oricine cu un order_id putea marca comanda ca plătită fără să plătească.
-    // Stripe webhook-ul e singurul care confirmă plata (cu semnătură verificată).
-    if let Some(ref order_id_str) = q.order_id {
-        if let Ok(order_id) = uuid::Uuid::parse_str(order_id_str) {
-            // Doar log, nu actualizăm statusul
-            tracing::info!(target: "orders::success", "Pagină success pentru comanda {}", order_id);
+    let oid = q.order_id.as_ref().and_then(|id| uuid::Uuid::parse_str(id).ok());
+    let mut data = serde_json::json!({"title": "Comandă înregistrată! — Shop MVP"});
+
+    if let Some(ref order_id_uuid) = oid {
+        // Încercăm să încărcăm detaliile comenzii
+        if let Ok(Some(order)) = s.orders.get_by_id(*order_id_uuid).await {
+            data["order_id"] = serde_json::json!(order_id_uuid.to_string());
+            data["total_lei"] = serde_json::json!(format!("{:.2}", order.total_bani as f64 / 100.0));
+            data["shipping_name"] = serde_json::json!(order.shipping_name);
+            data["shipping_address"] = serde_json::json!(order.shipping_address);
+            data["shipping_phone"] = serde_json::json!(order.shipping_phone);
+            data["payment_status"] = serde_json::json!(order.payment_status);
+            data["status"] = serde_json::json!(order.status);
+
+            // Încărcăm itemele
+            if let Ok(items) = s.orders.get_items(*order_id_uuid).await {
+                let items_json: Vec<serde_json::Value> = items.iter().map(|item| {
+                    serde_json::json!({
+                        "product_name": item.product_name,
+                        "qty": item.qty,
+                        "price_lei": format!("{:.2}", item.price_bani as f64 / 100.0),
+                        "subtotal_lei": format!("{:.2}", (item.price_bani * item.qty as i64) as f64 / 100.0),
+                    })
+                }).collect();
+                data["items"] = serde_json::json!(items_json);
+            }
+
+            tracing::info!(target: "orders::success", "Pagină success pentru comanda {} (plătit: {})", order_id_uuid, order.payment_status);
+        } else {
+            // Comanda nu s-a găsit — poate e ID greșit, dar arătăm oricum ceva util
+            data["order_id"] = serde_json::json!(order_id_uuid.to_string());
+            tracing::warn!(target: "orders::success", "Comanda {} nu s-a găsit în DB", order_id_uuid);
         }
     }
-    let data = serde_json::json!({"title": "Comandă reușită! — Shop MVP"});
+
     render_or_err_json(&s.renderer, "orders/success.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 

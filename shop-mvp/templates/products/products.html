@@ -27,11 +27,13 @@
             {% endif %}
         </p>
         <div class="mt-auto pt-3 flex gap-1 items-center flex-wrap">
+            {% if product.stock_count > 0 %}
             <form method="POST" action="{{ base_path }}/cart/add" class="flex gap-1 items-center">
                 <input type="hidden" name="product_slug" value="{{ product.slug }}">
                 <input type="number" name="qty" value="1" min="1" class="w-14 border rounded px-1 py-1 text-sm text-center">
                 <button type="submit" class="bg-blue-600 text-white px-2 py-1 rounded text-sm hover:bg-blue-700 whitespace-nowrap">+ Coș</button>
             </form>
+            {% endif %}
             <a href="{{ base_path }}/product/{{ product.slug }}" class="text-blue-600 text-sm py-1 ml-1">Detalii</a>
         </div>
     </div>
