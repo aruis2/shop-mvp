@@ -33,10 +33,16 @@ pub struct AppConfig {
     pub max_qty: i32,
     pub port: String,
     pub mock_payment: bool,
+    pub stripe_webhook_secret: String,
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
+        let stripe_webhook_secret = std::env::var("STRIPE_WEBHOOK_SECRET")
+            .unwrap_or_else(|_| {
+                tracing::warn!("⚠️  STRIPE_WEBHOOK_SECRET ne setat — webhook-urile Stripe NU vor fi verificate!");
+                String::new()
+            });
         Self {
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "postgresql://postgres:123123@localhost:5432/test".into()),
@@ -54,6 +60,7 @@ impl AppConfig {
                 .unwrap_or(999),
             port: std::env::var("PORT").unwrap_or_else(|_| "3001".into()),
             mock_payment: std::env::var("MOCK_PAYMENT").as_deref() == Ok("true"),
+            stripe_webhook_secret,
         }
     }
 }
@@ -161,6 +168,7 @@ pub struct LegoModules {
     pub renderer: RenderService,
     pub site_url: String,
     pub max_qty: i32,
+    pub stripe_webhook_secret: String,
     pub pool: PgPool,
 }
 
@@ -204,6 +212,7 @@ pub async fn assemble_lego_modules(cfg: &AppConfig, pool: &PgPool) -> anyhow::Re
         renderer,
         site_url: cfg.site_url.clone(),
         max_qty: cfg.max_qty,
+        stripe_webhook_secret: cfg.stripe_webhook_secret.clone(),
         pool: pool.clone(),
     })
 }
@@ -215,7 +224,7 @@ pub async fn assemble_lego_modules(cfg: &AppConfig, pool: &PgPool) -> anyhow::Re
 pub async fn build_and_serve(lego: LegoModules) -> anyhow::Result<()> {
     let inner_router = boundary::build_inner_router(
         &lego.products, &lego.auth, &lego.cart, &lego.orders, &lego.payment,
-        &lego.renderer, &lego.site_url, lego.max_qty, &lego.pool,
+        &lego.renderer, &lego.site_url, lego.max_qty, &lego.stripe_webhook_secret, &lego.pool,
     );
 
     let state = AppState {
@@ -227,6 +236,7 @@ pub async fn build_and_serve(lego: LegoModules) -> anyhow::Result<()> {
         renderer: lego.renderer,
         site_url: lego.site_url,
         max_qty: lego.max_qty,
+        stripe_webhook_secret: lego.stripe_webhook_secret,
         db: lego.pool,
         fc: FcState { inner_router: Arc::new(inner_router) },
     };

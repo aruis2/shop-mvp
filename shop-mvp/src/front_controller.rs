@@ -42,6 +42,7 @@ pub fn build_inner_router(
     renderer: &crate::render::RenderService,
     site_url: &str,
     max_qty: i32,
+    stripe_webhook_secret: &str,
     db: &sqlx::PgPool,
 ) -> Router {
     let state = AppState {
@@ -53,6 +54,7 @@ pub fn build_inner_router(
         renderer: renderer.clone(),
         site_url: site_url.to_string(),
         max_qty,
+        stripe_webhook_secret: stripe_webhook_secret.to_string(),
         db: db.clone(),
         fc: FcState { inner_router: Arc::new(Router::new()) }, // temporary, replaced below
     };

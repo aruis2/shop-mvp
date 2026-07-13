@@ -15,7 +15,7 @@ uuid.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 argon2 = "0.5"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 rand = "0.8"
 
 # LEGO adapters — (fără rust-marketplace-listings; dependența inversă eliminată)

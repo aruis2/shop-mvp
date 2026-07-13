@@ -531,13 +531,7 @@ pub async fn stripe_webhook(
         }
     };
 
-    let webhook_secret = std::env::var("STRIPE_WEBHOOK_SECRET")
-        .unwrap_or_else(|_| {
-            tracing::warn!(target: "stripe::webhook", "STRIPE_WEBHOOK_SECRET ne setat — verificare semnătură dezactivată!");
-            String::new()
-        });
-
-    if !webhook_secret.is_empty() && !verify_stripe_signature(&body, sig_header, &webhook_secret) {
+    if !s.stripe_webhook_secret.is_empty() && !verify_stripe_signature(&body, sig_header, &s.stripe_webhook_secret) {
         tracing::error!(target: "stripe::webhook", "Semnătură webhook invalidă — posibil atac!");
         return (axum::http::StatusCode::UNAUTHORIZED, "Invalid signature").into_response();
     }

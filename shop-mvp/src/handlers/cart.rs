@@ -74,14 +74,18 @@ pub async fn cart_page(
     let mut public_items_json: Vec<serde_json::Value> = Vec::new();
     let mut private_total_bani: i64 = 0;
     let mut public_total_bani: i64 = 0;
+
+    // 🔥 Batch query: un singur SELECT pentru toate slug-urile (previne N+1)
+    let slugs: Vec<String> = cart.items.iter().map(|i| i.product_slug.clone()).collect();
+    let products = s.products.get_products_by_slugs(&slugs).await
+        .unwrap_or_default();
+    let price_map: std::collections::HashMap<&str, i64> = products.iter()
+        .filter_map(|p| p.price_new.map(|pr| (p.slug.as_str(), pr as i64)))
+        .collect();
+
     for item in &cart.items {
         let is_private = item.user_id.is_some();
-        let current_price = s.products.get_by_slug(&item.product_slug).await
-            .ok()
-            .flatten()
-            .and_then(|p| p.price_new)
-            .map(|p| p as i64)
-            .unwrap_or(item.price_bani);
+        let current_price = price_map.get(item.product_slug.as_str()).copied().unwrap_or(item.price_bani);
         let subtotal = item.price_bani * item.qty as i64;
         total_bani += subtotal;
         let item_json = serde_json::json!({

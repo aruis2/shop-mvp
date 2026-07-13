@@ -41,6 +41,7 @@ pub(crate) struct AppState {
     pub renderer: RenderService,
     pub site_url: String,
     pub max_qty: i32,
+    pub stripe_webhook_secret: String,
     pub db: PgPool,
     pub fc: FcState,
 }
@@ -99,6 +100,7 @@ impl FromRef<AppState> for OrderState {
             auth: state.auth.clone(),
             renderer: state.renderer.clone(),
             site_url: state.site_url.clone(),
+            stripe_webhook_secret: state.stripe_webhook_secret.clone(),
         }
     }
 }
@@ -157,6 +159,7 @@ pub struct OrderState {
     pub auth: Arc<dyn AuthRepo>,
     pub renderer: RenderService,
     pub site_url: String,
+    pub stripe_webhook_secret: String,
 }
 
 /// 🔐 Admin — are nevoie de toate (dar totul prin trait-uri, nu PgPool direct)

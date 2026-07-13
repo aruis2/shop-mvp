@@ -45,8 +45,11 @@ impl PgAuthRepo {
             exp: now + 86400 * 7, // 7 zile
             iat: now,
         };
+        // 🔒 HS256 explicit
+        let mut header = Header::default();
+        header.alg = jsonwebtoken::Algorithm::HS256;
         encode(
-            &Header::default(),
+            &header,
             &claims,
             &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
         )
@@ -172,10 +175,15 @@ impl AuthRepo for PgAuthRepo {
     }
 
     async fn verify_token(&self, token: &str) -> Result<User, AuthError> {
+        // 🔒 Validare explicită: doar HS256, verificare exp + iss implicit
+        let mut validation = Validation::default();
+        validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
+        validation.iss = None; // nu verificăm issuer (single-service)
+
         let data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
-            &Validation::default(),
+            &validation,
         )
         .map_err(|e| match e.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,

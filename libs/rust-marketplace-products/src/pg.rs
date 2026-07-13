@@ -309,4 +309,24 @@ impl ProductRepo for PgProductRepo {
         }
         Ok(())
     }
+
+    async fn get_products_by_slugs(&self, slugs: &[String]) -> Result<Vec<Product>, ProductError> {
+        if slugs.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Folosim ANY($1) pentru batch query — un singur round-trip
+        let products = sqlx::query_as::<_, Product>(
+            r#"
+            SELECT id, brand, name, slug, category_id, release_year,
+                   specs, price_new, affiliate_url, image_url, created_at,
+                   stock_count
+            FROM products
+            WHERE slug = ANY($1)
+            "#
+        )
+        .bind(slugs)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(products)
+    }
 }

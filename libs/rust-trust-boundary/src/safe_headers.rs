@@ -142,16 +142,27 @@ impl SafeHeaders {
     }
 
     /// Verifică CSRF: potrivește Origin sau Referer cu site_url.
+    /// 🔒 În dev (localhost), acceptă doar `http://localhost` exact — nu `localhost.evil.com`.
     pub fn verify_csrf(&self, site_url: &str) -> bool {
         // Verifică Origin primul (mai fiabil)
         if let Some(origin) = &self.origin {
-            if origin == site_url || origin.contains("://localhost") {
+            if origin == site_url
+                || origin == "http://localhost"
+                || origin == "https://localhost"
+                || origin.starts_with("http://localhost:")
+                || origin.starts_with("https://localhost:")
+            {
                 return true;
             }
         }
         // Fallback la Referer
         if let Some(referer) = &self.referer {
-            if referer.starts_with(site_url) || referer.contains("://localhost") {
+            if referer.starts_with(site_url)
+                || referer == "http://localhost"
+                || referer == "https://localhost"
+                || referer.starts_with("http://localhost:")
+                || referer.starts_with("https://localhost:")
+            {
                 return true;
             }
         }

@@ -14,6 +14,7 @@
 //! - Cache-Control: `no-store` pe rute sensibile
 
 use http::StatusCode;
+use tracing;
 
 use axum::response::{IntoResponse, Response as AxumResponse};
 use axum::body::Body;
@@ -143,10 +144,14 @@ impl SafeResponse {
     }
 
     /// Creează un răspuns 500 (server error).
+    /// 🔒 Mesajul original e LOGAT (tracing::error!), utilizatorul vede doar un mesaj generic.
+    /// Previne info leak: stack trace-urile și detaliile interne nu ajung la client.
     pub fn server_error(msg: impl Into<String>) -> Self {
+        let details = msg.into();
+        tracing::error!("⚠️ Internal server error: {details}");
         SafeResponse {
             status: SafeStatus::ServerError,
-            body: msg.into(),
+            body: "Eroare internă de server. Încearcă din nou.".to_string(),
             content_type: "text/plain; charset=utf-8".to_string(),
             location: None,
             set_cookies: Vec::new(),

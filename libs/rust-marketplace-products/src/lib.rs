@@ -64,6 +64,9 @@ pub trait ProductRepo: Send + Sync {
     /// Produs după slug
     async fn get_by_slug(&self, slug: &str) -> Result<Option<Product>, ProductError>;
 
+    /// Obține mai multe produse după slug-uri (batch — previne N+1).
+    async fn get_products_by_slugs(&self, slugs: &[String]) -> Result<Vec<Product>, ProductError>;
+
     /// Statistici catalog
     async fn get_stats(&self) -> Result<ProductStats, ProductError>;
 
