@@ -4,6 +4,7 @@
 
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     response::IntoResponse,
 };
 use serde::Deserialize;
@@ -110,14 +111,49 @@ pub async fn checkout_page(
     render_safe_json(&s.renderer, "orders/checkout.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-struct CheckoutParsed {
-    session_id: String,
-    guest_email: Option<String>,
-    shipping_name: String,
-    shipping_address: String,
-    shipping_phone: String,
-    notes: Option<String>,
-    is_private: bool,
+pub struct CheckoutForm {
+    pub session_id: String,
+    pub is_private: bool,
+    pub guest_email: Option<String>,
+    pub shipping_name: String,
+    pub shipping_address: String,
+    pub shipping_phone: String,
+    pub notes: Option<String>,
+}
+
+impl ValidateForm for CheckoutForm {
+    fn validate(fields: &[FormField], headers: &HeaderMap) -> Result<Self, SafeResponse> {
+        let raw = get_field(fields, "session_id")
+            .map_err(|_| redirect_back(headers, "/checkout", "Session ID lipsă"))?;
+        let is_private = raw.starts_with("private_");
+        let clean = if is_private { &raw[8..] } else { raw };
+        let session_id = InputFactory::parse_session_id(clean)
+            .map_err(|_| redirect_back(headers, "/checkout", "Session ID invalid"))?;
+        let guest_email = get_field(fields, "guest_email").ok()
+            .and_then(|s| if s.is_empty() { None } else { Some(s.to_string()) });
+        let shipping_name = InputFactory::parse_name(
+            get_field(fields, "shipping_name").map_err(|_| redirect_back(headers, "/checkout", "Nume lipsă"))?
+        ).map_err(|_| redirect_back(headers, "/checkout", "Nume invalid"))?;
+        let shipping_address = InputFactory::parse_address(
+            get_field(fields, "shipping_address").map_err(|_| redirect_back(headers, "/checkout", "Adresă lipsă"))?
+        ).map_err(|_| redirect_back(headers, "/checkout", "Adresă invalidă"))?;
+        let shipping_phone = InputFactory::parse_phone(
+            get_field(fields, "shipping_phone").map_err(|_| redirect_back(headers, "/checkout", "Telefon lipsă"))?
+        ).map_err(|_| redirect_back(headers, "/checkout", "Telefon invalid"))?;
+        let notes = get_field(fields, "notes").ok()
+            .and_then(|s| if s.is_empty() { None } else {
+                InputFactory::parse_notes(s).ok().map(|n| n.to_string())
+            });
+        Ok(CheckoutForm {
+            session_id: session_id.to_string(),
+            is_private,
+            guest_email,
+            shipping_name: shipping_name.as_str().to_string(),
+            shipping_address: shipping_address.as_str().to_string(),
+            shipping_phone: shipping_phone.as_str().to_string(),
+            notes,
+        })
+    }
 }
 
 fn error_redirect(dest: &str, msg: &str) -> SafeResponse {
@@ -142,44 +178,9 @@ pub async fn checkout_handler(
     State(s): State<OrderState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-    body: String,
+    ValidatedForm(checkout): ValidatedForm<CheckoutForm>,
 ) -> SafeResponse {
     let token_str = extract_token(&headers).unwrap_or("");
-
-    // 🏭 InputFactory: parsează și validează TOT inputul
-    let checkout = match parse_any_into(&body, |fields| {
-        let raw = get_field(fields, "session_id")?;
-        let is_private = raw.starts_with("private_");
-        let clean = if is_private { &raw[8..] } else { raw };
-        let session_id = InputFactory::parse_session_id(clean)?;
-        let guest_email = get_field(fields, "guest_email").ok()
-            .and_then(|s| if s.is_empty() { None } else { Some(s.to_string()) });
-        let shipping_name = InputFactory::parse_name(get_field(fields, "shipping_name")?)?;
-        let shipping_address = InputFactory::parse_address(get_field(fields, "shipping_address")?)?;
-        let shipping_phone = InputFactory::parse_phone(get_field(fields, "shipping_phone")?)?;
-        let notes = get_field(fields, "notes").ok()
-            .and_then(|s| if s.is_empty() { None } else {
-                InputFactory::parse_notes(s).ok().map(|n| n.to_string())
-            });
-        Ok(CheckoutParsed {
-            session_id: session_id.to_string(),
-            guest_email,
-            shipping_name: shipping_name.to_string(),
-            shipping_address: shipping_address.to_string(),
-            shipping_phone: shipping_phone.to_string(),
-            is_private,
-            notes,
-        })
-    }) {
-        Ok(c) => c,
-        Err(InputError::MissingField(f)) => {
-            let msg = format!("Cîmpul '{f}' lipsește");
-            return error_redirect(&format!("{}/checkout", bp), &msg);
-        },
-        Err(e) => {
-            return error_redirect(&format!("{}/checkout", bp), &e.to_string());
-        },
-    };
 
     let user_id = if token_str.is_empty() { None } else { s.auth.verify_token(token_str).await.ok().map(|u| u.id) };
 
