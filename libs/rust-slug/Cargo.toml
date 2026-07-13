@@ -1,0 +1,6 @@
+[package]
+name = "rust-slug"
+version = "0.1.0"
+edition = "2024"
+description = "URL-friendly slug generator with Romanian diacritics support — standalone LEGO"
+license = "MIT OR Apache-2.0"

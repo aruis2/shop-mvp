@@ -1,18 +1,40 @@
+# Rust build
 target/
-uploads/
-*.jsonl
+
+# Logs
+logs/
+*.log
+
+# Environment & secrets
 .env
 .env.save
 .env.dev
 .env.prod
-# .env.prod.example se commitează (fără date sensibile)
-20260706000005_add_more_articles.sql
-explore/
-logs/
-*.log
 secrets/
+
+# Node.js (tailwindcss)
+node_modules/
+package-lock.json
+
+# Editor
 .vscode/
 *.swp
-shop-mvp/tests/node_modules/
-node_modules/
+
+# Uploads & temp
+uploads/
+explore/
+*.jsonl
+
+# Generated SQL
+20260706000005_add_more_articles.sql
+
+# Tailwind source (compiled CSS e deja trackat)
 shop-mvp/static/tailwind-input.css
+
+# Personal files (CVs, reports)
+CV-*.md
+CV-*.txt
+yeswehack-*
+
+# Local copy of public article
+articles/manual-evergreen-vulnerabilitati.md

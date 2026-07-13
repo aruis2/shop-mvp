@@ -1,0 +1,16 @@
+[package]
+name = "u32-i32-converter"
+version = "0.1.1"
+edition = "2024"
+
+# Adaugă o descriere scurtă (crates.io o cere)
+description = "A simple utility to convert between u32 and i32 made with deepseek"
+
+# Alege o licență (SPDX) - de exemplu, MIT sau Apache-2.0
+license = "MIT OR Apache-2.0"
+
+# (Opțional, dar recomandat) Adaugă un link către repository
+# TODO repository = "https://github.com/aruis2/u32-i32-converter"
+
+# (Opțional) Specifică un README
+readme = "README.md"

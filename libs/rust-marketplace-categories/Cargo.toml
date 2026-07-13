@@ -1,0 +1,22 @@
+[package]
+name = "rust-marketplace-categories"
+version = "0.1.0"
+edition = "2024"
+description = "Hierarchical category tree with PostgreSQL — standalone LEGO module"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono"] }
+tokio = { version = "1.52.3", features = ["full"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+async-trait = "0.1"
+thiserror = "2"
+
+# LEGO: când activăm "products", categories poate fi folosit ca CategoryService
+rust-marketplace-products = { path = "../rust-marketplace-products", optional = true }
+
+[features]
+default = []
+products = ["rust-marketplace-products"]
