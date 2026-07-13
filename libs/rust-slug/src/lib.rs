@@ -62,4 +62,13 @@ mod tests {
     fn test_slug_multiple_spaces() {
         assert_eq!(generate_slug("Laptop   Dell"), "laptop-dell");
     }
+
+    #[test]
+    fn test_slug_romanian_diacritics() {
+        assert_eq!(generate_slug("Telefoane și Tablete"), "telefoane-si-tablete");
+        assert_eq!(generate_slug("Mâncare Și Băutură"), "mancare-si-bautura");
+        assert_eq!(generate_slug("Ținute Școlare"), "tinute-scolare");
+        assert_eq!(generate_slug("Încălțăminte Sport"), "incaltaminte-sport");
+        assert_eq!(generate_slug("Adăugări Noi"), "adaugari-noi");
+    }
 }

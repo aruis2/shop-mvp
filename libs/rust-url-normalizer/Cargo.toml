@@ -2,6 +2,8 @@
 name = "rust-url-normalizer"
 version = "0.1.0"
 edition = "2024"
+description = "Axum middleware that normalizes URLs: strips trailing slash with 301 redirect, preserves query params — standalone LEGO module"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 axum = "0.8"

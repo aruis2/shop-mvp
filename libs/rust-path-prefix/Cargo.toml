@@ -1,6 +1,8 @@
 [package]
 name = "rust-path-prefix"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+description = "URL path prefix management for reverse proxy setups — standalone LEGO module"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
