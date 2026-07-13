@@ -218,8 +218,9 @@ pub async fn security_headers_middleware(
         .unwrap_or("")
         .to_string();
 
-    let sanitized_body: Body = if content_type.contains("text/html") || content_type.contains("text/plain") {
-        // Sanitizare cu OutputFactory pentru text (previne XSS)
+    let sanitized_body: Body = if content_type.contains("text/plain") {
+        // Sanitizare cu OutputFactory pentru text simplu (erori, mesaje)
+        // HTML-ul de la Tera e deja safe (tera escapează automat) — nu dublăm encodingul
         let text = String::from_utf8_lossy(&body_bytes);
         let safe = crate::types::output::OutputFactory::text_html(&text);
         Body::from(safe.into_bytes())
