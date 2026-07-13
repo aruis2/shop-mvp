@@ -54,3 +54,4 @@ rust-payment            = { path = "../libs/rust-payment" }
 rust-url-normalizer     = { path = "../libs/rust-url-normalizer" }
 rust-slug                = { path = "../libs/rust-slug" }
 rust-path-prefix         = { path = "../libs/rust-path-prefix" }
+rust-trust-boundary     = { path = "../libs/rust-trust-boundary" }

@@ -33,6 +33,7 @@ mod url_encode;
 mod cookie;
 mod debug;
 mod handlers;
+mod trust_boundary;
 mod payment_retry;
 mod ratelimit;
 mod render;
@@ -262,6 +263,12 @@ async fn main() -> anyhow::Result<()> {
         .merge(shop_routes.clone())
         .nest("/shop", shop_routes)
         .nest_service("/static", ServeDir::new("shop-mvp/static"))
+        // 🔐 TrustBoundary — PRIMUL strat: validează ORICE request la graniță
+        // PHILOSOPHY #13: zero intermediari între raw bytes și tipurile noastre
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            trust_boundary::trust_boundary_middleware,
+        ))
         .layer(axum::middleware::from_fn(csrf_middleware))
         .layer(axum::middleware::from_fn(session_timeout))
         .layer(axum::middleware::from_fn(security_headers))

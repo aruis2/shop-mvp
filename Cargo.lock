@@ -1748,6 +1748,7 @@ dependencies = [
  "rust-path-prefix",
  "rust-payment",
  "rust-slug",
+ "rust-trust-boundary",
  "rust-url-normalizer",
  "serde",
  "serde_json",
