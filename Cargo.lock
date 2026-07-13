@@ -1528,6 +1528,17 @@ name = "rust-slug"
 version = "0.1.0"
 
 [[package]]
+name = "rust-trust-boundary"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "rust-url-normalizer"
 version = "0.1.0"
 dependencies = [

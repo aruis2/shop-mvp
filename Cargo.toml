@@ -9,6 +9,7 @@ members = [
     "libs/rust-payment",
     "libs/rust-path-prefix",
     "libs/rust-slug",
+    "libs/rust-trust-boundary",
     "libs/rust-url-normalizer",
 ]
 
