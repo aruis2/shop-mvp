@@ -26,6 +26,9 @@ pub use crate::types::logic::{LogicFactory, LogicError};
 pub use crate::types::output::OutputFactory;
 pub use crate::types::parser::{parse_form, get_field, parse_any_into, FormField};
 
+// Re-exporturi extractor
+pub use crate::types::extractor::{ValidatedForm, ValidateForm};
+
 // Re-exporturi cookie
 pub use crate::cookie::{get_cookie, set_cookie, remove_cookie};
 
