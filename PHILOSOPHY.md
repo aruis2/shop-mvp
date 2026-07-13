@@ -4,6 +4,8 @@
 
 **"Simplitate, respect pentru standarde, prevenirea erorilor și o experiență curată pentru utilizator."**
 
+> Arhitectura nu e despre ce poți face, ci despre ce NU poți face din greșeală.
+
 ### Principii
 
 #### 1. Server-side first
