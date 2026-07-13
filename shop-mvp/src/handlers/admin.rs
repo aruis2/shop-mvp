@@ -6,6 +6,7 @@
 
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     Json,
 };
 use serde::Deserialize;
@@ -147,54 +148,60 @@ pub async fn admin_product_new_page(
     render_safe_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
+pub struct AdminProductForm {
+    pub brand: String,
+    pub name: String,
+    pub slug: String,
+    pub price_new: Option<i32>,
+    pub stock_count: Option<i32>,
+}
+
+impl ValidateForm for AdminProductForm {
+    fn validate(fields: &[FormField], _headers: &HeaderMap) -> Result<Self, SafeResponse> {
+        let brand = InputFactory::parse_brand(
+            get_field(fields, "brand").map_err(|_| SafeResponse::bad_request("Brand lipsă"))?
+        ).map_err(|_| SafeResponse::bad_request("Brand invalid"))?;
+        let name = InputFactory::parse_product_name(
+            get_field(fields, "name").map_err(|_| SafeResponse::bad_request("Nume lipsă"))?
+        ).map_err(|_| SafeResponse::bad_request("Nume invalid"))?;
+        let slug_raw = get_field(fields, "slug").unwrap_or("");
+        let slug = if slug_raw.is_empty() {
+            InputFactory::parse_slug(&name.as_str().to_lowercase().replace(' ', "-"))
+        } else {
+            InputFactory::parse_slug(slug_raw)
+        }.map_err(|_| SafeResponse::bad_request("Slug invalid"))?;
+        let price_new = get_field(fields, "price_new").ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        let stock_count = get_field(fields, "stock_count").ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        Ok(AdminProductForm {
+            brand: brand.as_str().to_string(),
+            name: name.as_str().to_string(),
+            slug: slug.as_str().to_string(),
+            price_new,
+            stock_count,
+        })
+    }
+}
+
 pub async fn admin_product_create(
     State(s): State<AdminState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AdminQuery>,
-    body: String,
+    ValidatedForm(form): ValidatedForm<AdminProductForm>,
 ) -> SafeResponse {
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, "/admin/product/new").await {
         Ok(u) => u,
         Err(resp) => return resp,
     };
 
-    // 🏭 InputFactory: validează toate cîmpurile produsului
-    let (brand, name, slug_s, price_new, stock_count) = match parse_any_into(&body, |fields| {
-        let brand = InputFactory::parse_brand(get_field(fields, "brand")?)?;
-        let name = InputFactory::parse_product_name(get_field(fields, "name")?)?;
-        let slug_raw = get_field(fields, "slug").unwrap_or("");
-        let slug = if slug_raw.is_empty() {
-            // Auto-generare din nume
-            InputFactory::parse_slug(&name.as_str().to_lowercase().replace(' ', "-"))?
-        } else {
-            InputFactory::parse_slug(slug_raw)?
-        };
-        let price_new = get_field(fields, "price_new").ok()
-            .and_then(|s| s.parse::<i32>().ok());
-        let stock_count = get_field(fields, "stock_count").ok()
-            .and_then(|s| s.parse::<i32>().ok());
-        Ok::<(String, String, String, Option<i32>, Option<i32>), InputError>((
-            brand.to_string(),
-            name.to_string(),
-            slug.as_str().to_string(),
-            price_new,
-            stock_count,
-        ))
-    }) {
-        Ok(v) => v,
-        Err(e) => {
-            debug_warn!(target: "admin::product", "create product: InputFactory error: {}", e);
-            return error_redirect(&headers, &bp, &e.to_string());
-        },
-    };
-
     let create_req = rust_marketplace_products::CreateProductRequest {
-        brand, name, slug: slug_s,
+        brand: form.brand, name: form.name, slug: form.slug,
         category_id: 1, release_year: None,
         specs: Some(serde_json::json!({})),
-        price_new, affiliate_url: None, image_url: None,
-        stock_count,
+        price_new: form.price_new, affiliate_url: None, image_url: None,
+        stock_count: form.stock_count,
     };
 
     match s.products.create_product(create_req).await {
@@ -243,7 +250,7 @@ pub async fn admin_product_update(
     headers: axum::http::HeaderMap,
     Path(slug): Path<String>,
     Query(q): Query<AdminQuery>,
-    body: String,
+    ValidatedForm(form): ValidatedForm<AdminProductForm>,
 ) -> SafeResponse {
     let rp = format!("/admin/product/{}/edit", &slug);
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, &rp).await {
@@ -251,37 +258,11 @@ pub async fn admin_product_update(
         Err(resp) => return resp,
     };
 
-    // 🏭 InputFactory: validează cîmpurile opționale
-    let (brand, name, slug_s, price_new, stock_count) = match parse_any_into(&body, |fields| {
-        let brand = get_field(fields, "brand").ok()
-            .map(|s| InputFactory::parse_brand(s).map(|b| b.to_string()))
-            .transpose()?;
-        let name = get_field(fields, "name").ok()
-            .map(|s| InputFactory::parse_product_name(s).map(|n| n.to_string()))
-            .transpose()?;
-        let slug_s = get_field(fields, "slug").ok()
-            .map(|s| InputFactory::parse_slug(s).map(|sl| sl.as_str().to_string()))
-            .transpose()?;
-        let price_new = get_field(fields, "price_new").ok()
-            .and_then(|s| s.parse::<i32>().ok());
-        let stock_count = get_field(fields, "stock_count").ok()
-            .and_then(|s| s.parse::<i32>().ok());
-        Ok::<(Option<String>, Option<String>, Option<String>, Option<i32>, Option<i32>), InputError>((
-            brand, name, slug_s, price_new, stock_count,
-        ))
-    }) {
-        Ok(v) => v,
-        Err(e) => {
-            debug_warn!(target: "admin::product", "update product: InputFactory error: {}", e);
-            return error_redirect(&headers, &bp, &e.to_string());
-        },
-    };
-
     let update_req = rust_marketplace_products::UpdateProductRequest {
-        brand, name, slug: slug_s,
+        brand: Some(form.brand), name: Some(form.name), slug: Some(form.slug),
         category_id: None, release_year: None, specs: None,
-        price_new, affiliate_url: None, image_url: None,
-        stock_count,
+        price_new: form.price_new, affiliate_url: None, image_url: None,
+        stock_count: form.stock_count,
     };
 
     match s.products.update_product(&slug, update_req).await {
@@ -383,30 +364,34 @@ fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> SafeR
 
 // Folosește url_encode din crate::url_encode în loc de funcția locală
 
+pub struct AdminOrderStatusForm {
+    pub status: String,
+}
+
+impl ValidateForm for AdminOrderStatusForm {
+    fn validate(fields: &[FormField], headers: &HeaderMap) -> Result<Self, SafeResponse> {
+        let status = get_field(fields, "status")
+            .map_err(|_| SafeResponse::bad_request("Status lipsă"))?
+            .to_string();
+        if status.is_empty() {
+            return Err(SafeResponse::bad_request("Status gol"));
+        }
+        Ok(AdminOrderStatusForm { status })
+    }
+}
+
 pub async fn admin_order_update_status(
     State(s): State<AdminState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Path(id): Path<uuid::Uuid>,
     Query(q): Query<AdminQuery>,
-    body: String,
+    ValidatedForm(form): ValidatedForm<AdminOrderStatusForm>,
 ) -> SafeResponse {
     let rp = format!("/admin/order/{}/status", &id);
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, &rp).await {
         Ok(u) => u,
         Err(resp) => return resp,
-    };
-
-    // 🏭 InputFactory: parsează statusul
-    let status = match parse_any_into(&body, |fields| {
-        let status = get_field(fields, "status")?;
-        if status.is_empty() {
-            return Err(InputError::MissingField("status".to_string()));
-        }
-        Ok(status.to_string())
-    }) {
-        Ok(s) => s,
-        Err(e) => return error_redirect(&headers, &bp, &e.to_string()),
     };
 
     let order = match s.orders.get_by_id(id).await {
@@ -416,11 +401,9 @@ pub async fn admin_order_update_status(
     };
 
     let needs_payment = ["confirmed", "shipped", "delivered"];
-    if needs_payment.contains(&status.as_str()) {
-        // 🔒 verify_not_paid returnează Ok(când e unpaid), Err(când e paid)
-        // Noi vrem invers: dacă e unpaid (Ok) → eroare, dacă e paid (Err) → ok
+    if needs_payment.contains(&form.status.as_str()) {
         if LogicFactory::verify_not_paid(&order.payment_status).is_ok() {
-            let status_label = match status.as_str() {
+            let status_label = match form.status.as_str() {
                 "confirmed" => "confirmată",
                 "shipped" => "expediată",
                 "delivered" => "livrată",
@@ -431,14 +414,14 @@ pub async fn admin_order_update_status(
         }
     }
 
-    if let Err(_) = LogicFactory::verify_status_transition(&order.status, &status) {
+    if let Err(_) = LogicFactory::verify_status_transition(&order.status, &form.status) {
         let msg = format!("Comanda nu poate fi {} — este deja {}",
-            if status == "cancelled" { "anulată" } else { "actualizată" },
+            if form.status == "cancelled" { "anulată" } else { "actualizată" },
             order.status);
         return error_redirect(&headers, &bp, &msg);
     }
 
-    if status == "cancelled" && order.payment_status == "paid" {
+    if form.status == "cancelled" && order.payment_status == "paid" {
         if let Some(ref pid) = order.payment_provider_id {
             if let Err(e) = s.payment.refund_payment(pid).await {
                 tracing::warn!("Refund eșuat pentru comanda {}: {}", id, e);
@@ -449,7 +432,7 @@ pub async fn admin_order_update_status(
         }
     }
 
-    if let Err(e) = s.orders.update_status(id, &status).await {
+    if let Err(e) = s.orders.update_status(id, &form.status).await {
         return error_redirect(&headers, &bp, &e.to_string());
     }
 

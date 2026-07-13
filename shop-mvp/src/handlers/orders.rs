@@ -12,7 +12,6 @@ use crate::state::OrderState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
-use crate::types::parser::{parse_any_into, get_field};
 use crate::url_encode::url_encode;
 use crate::{debug_warn, debug_log};
 
@@ -111,7 +110,6 @@ pub async fn checkout_page(
     render_safe_json(&s.renderer, "orders/checkout.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-/// Date de checkout validate prin InputFactory
 struct CheckoutParsed {
     session_id: String,
     guest_email: Option<String>,
