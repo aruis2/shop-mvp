@@ -15,7 +15,6 @@ use crate::state::ProductState;
 use crate::render::{RenderService, DetectBasePath};
 use crate::handlers::auth;
 use crate::boundary::*;
-use rust_marketplace_products::ProductRepo;
 
 pub const PRODUCTS_PER_PAGE: i64 = 24;
 
@@ -101,7 +100,7 @@ pub struct SearchQuery {
     pub page: Option<i64>,
 }
 
-async fn fetch_categories(products: &dyn ProductRepo) -> Vec<serde_json::Value> {
+async fn fetch_categories(products: &dyn rust_marketplace_products::ProductRepo) -> Vec<serde_json::Value> {
     products.get_categories().await
         .unwrap_or_default()
         .iter()

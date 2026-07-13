@@ -66,7 +66,7 @@ Handlerul primește un `State` care conține DOAR ce are nevoie.
 | products | `ProductState` = products + render |
 | cart | `CartState` = cart + products + auth |
 | orders | `OrderState` = orders + cart + payment + auth |
-| admin | `AdminState` = products + orders + payment + auth + db |
+| admin | `AdminState` = products + orders + payment + auth |
 
 ```rust
 // ✅ Corect — handlerul de coș NU poate accesa OrderRepo
