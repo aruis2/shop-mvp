@@ -4,20 +4,18 @@
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
 
 use crate::state::CartState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err_json;
+use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::url_encode::url_encode;
 use crate::debug_warn;
 
-fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> Response {
+fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> SafeResponse {
     let base = headers.get("referer")
         .and_then(|v| v.to_str().ok())
         .map(|r| r.split('?').next().unwrap_or(r))
@@ -28,11 +26,10 @@ fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<
     // 🔒 OutputFactory: validează URL-ul redirect (previne open redirect)
     let safe_base = OutputFactory::safe_redirect_url(&base, "/")
         .unwrap_or_else(|| fallback.to_string());
-    let dest = match error {
-        Some(msg) => format!("{}?error={}", safe_base, url_encode(msg)),
-        None => safe_base,
-    };
-    (StatusCode::FOUND, [("Location", dest)]).into_response()
+    match error {
+        Some(msg) => SafeResponse::redirect(format!("{}?error={}", safe_base, url_encode(msg))),
+        None => SafeResponse::redirect(safe_base),
+    }
 }
 
 #[derive(Deserialize)]
@@ -47,7 +44,7 @@ pub async fn cart_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<CartQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     // 🏭 InputFactory: extrage session_id din query → header → cookie
     let session_id = q.session_id.clone()
         .or_else(|| {
@@ -68,16 +65,21 @@ pub async fn cart_page(
         headers.get("cookie").and_then(|v| v.to_str().ok()).unwrap_or(""), "token"
     ) {
         if let Ok(user) = s.auth.verify_token(token).await {
-            let combined = s.cart.get_cart_by_user(&session_id, user.id).await
-                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            (combined, Some(user.id))
+            match s.cart.get_cart_by_user(&session_id, user.id).await {
+                Ok(c) => (c, Some(user.id)),
+                Err(e) => return SafeResponse::server_error(e.to_string()),
+            }
         } else {
-            (s.cart.get_cart(&session_id).await
-                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?, None)
+            match s.cart.get_cart(&session_id).await {
+                Ok(c) => (c, None),
+                Err(e) => return SafeResponse::server_error(e.to_string()),
+            }
         }
     } else {
-        (s.cart.get_cart(&session_id).await
-            .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?, None)
+        match s.cart.get_cart(&session_id).await {
+            Ok(c) => (c, None),
+            Err(e) => return SafeResponse::server_error(e.to_string()),
+        }
     };
 
     let mut total_bani: i64 = 0;
@@ -146,7 +148,7 @@ pub async fn cart_page(
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
     if q.added.is_some() { data["added"] = serde_json::json!("✓ Produs adăugat în coș"); }
-    render_or_err_json(&s.renderer, "cart/cart.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "cart/cart.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 // ─── Add to cart ────────────────────────────────────────
@@ -156,7 +158,7 @@ pub async fn cart_add(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let sid = headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
@@ -221,7 +223,6 @@ pub async fn cart_add(
         return redirect_back(&headers, "/products", Some("Adăugare eșuată"));
     }
 
-    let sid_cookie = crate::cookie::set_cookie("session_id", &sid, 86400 * 30);
     // 🔁 UX: după adăugare, userul rămâne la produse (nu merge la /cart)
     // - Dacă era pe lista de produse → redirecționează înapoi la listă cu ?added=1
     // - Dacă era pe detaliu produs → redirecționează la /products?added=1
@@ -253,12 +254,7 @@ pub async fn cart_add(
                 .unwrap_or_else(|| format!("{}/cart#cart-container", bp))
         }
     };
-    let mut resp = (StatusCode::FOUND, [("Location", dest.as_str())]).into_response();
-    resp.headers_mut().insert(
-        axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&sid_cookie).unwrap(),
-    );
-    resp
+    SafeResponse::redirect(dest).with_cookie("session_id", &sid, 86400 * 30)
 }
 
 // ─── Remove from cart ───────────────────────────────────
@@ -267,7 +263,7 @@ pub async fn cart_remove(
     State(s): State<CartState>,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let sid = headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
@@ -286,16 +282,16 @@ pub async fn cart_remove(
         Ok(id) => id,
         Err(_) => {
             // 🔗 #cart-container — păstrează poziția scroll după redirect
-            return (StatusCode::FOUND, [("Location", "/cart?error=ID+invalid#cart-container")]).into_response();
+            return SafeResponse::redirect("/cart?error=ID+invalid#cart-container");
         }
     };
 
     if let Err(_) = s.cart.remove_item(sid, item_id).await {
-        return (StatusCode::FOUND, [("Location", "/cart?error=Ștergere+eșuată#cart-container")]).into_response();
+        return SafeResponse::redirect("/cart?error=Ștergere+eșuată#cart-container");
     }
 
     // 🔗 #cart-container — browserul duce utilizatorul la secțiunea coș, nu sus
-    (StatusCode::FOUND, [("Location", "/cart#cart-container")]).into_response()
+    SafeResponse::redirect("/cart#cart-container")
 }
 
 // ─── Update quantity ────────────────────────────────────
@@ -310,7 +306,7 @@ pub async fn cart_update(
     State(s): State<CartState>,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let sid = headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
@@ -327,18 +323,18 @@ pub async fn cart_update(
         Ok::<(uuid::Uuid, i32), InputError>((item_id, qty.get() as i32))
     }) {
         Ok(v) => v,
-        Err(_) => return (StatusCode::FOUND, [("Location", "/cart?error=Date+invalide#cart-container")]).into_response(),
+        Err(_) => return SafeResponse::redirect("/cart?error=Date+invalide#cart-container"),
     };
 
     // Validează cantitatea
     if let Err(_) = LogicFactory::verify_qty_in_range(qty, 1, s.max_qty) {
-        return (StatusCode::FOUND, [("Location", "/cart?error=Cantitate+invalidă#cart-container")]).into_response();
+        return SafeResponse::redirect("/cart?error=Cantitate+invalidă#cart-container");
     }
 
     if let Err(_) = s.cart.update_qty(sid, item_id, qty).await {
-        return (StatusCode::FOUND, [("Location", "/cart?error=Actualizare+eșuată#cart-container")]).into_response();
+        return SafeResponse::redirect("/cart?error=Actualizare+eșuată#cart-container");
     }
 
     // 🔗 #cart-container — browserul duce utilizatorul la secțiunea coș, nu sus
-    (StatusCode::FOUND, [("Location", "/cart#cart-container")]).into_response()
+    SafeResponse::redirect("/cart#cart-container")
 }

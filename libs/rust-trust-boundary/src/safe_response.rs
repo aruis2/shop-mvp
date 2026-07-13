@@ -15,6 +15,9 @@
 
 use http::StatusCode;
 
+use axum::response::{IntoResponse, Response as AxumResponse};
+use axum::body::Body;
+
 /// Status code garantat valid.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SafeStatus {
@@ -139,6 +142,19 @@ impl SafeResponse {
         }
     }
 
+    /// Creează un răspuns 500 (server error).
+    pub fn server_error(msg: impl Into<String>) -> Self {
+        SafeResponse {
+            status: SafeStatus::ServerError,
+            body: msg.into(),
+            content_type: "text/plain; charset=utf-8".to_string(),
+            location: None,
+            set_cookies: Vec::new(),
+            remove_cookies: Vec::new(),
+            extra_headers: Vec::new(),
+        }
+    }
+
     /// Setează un cookie.
     pub fn with_cookie(mut self, name: &str, value: &str, max_age: i64) -> Self {
         self.set_cookies.push((
@@ -237,6 +253,15 @@ impl SafeResponse {
                     .body("Internal Server Error".to_string())
                     .unwrap()
             })
+    }
+}
+
+// ─── Axum IntoResponse ────────────────────────────────────────
+
+impl IntoResponse for SafeResponse {
+    fn into_response(self) -> AxumResponse {
+        let (parts, body) = self.into_http_response().into_parts();
+        AxumResponse::from_parts(parts, Body::from(body))
     }
 }
 

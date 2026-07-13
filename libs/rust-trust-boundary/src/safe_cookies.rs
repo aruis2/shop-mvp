@@ -46,8 +46,8 @@ impl SafeCookies {
                     let name = &part[..eq_pos].trim().to_string();
                     let value = &part[eq_pos + 1..].trim().to_string();
 
-                    // Validare: lungime maximă
-                    if value.len() > 256 {
+                    // Validare: lungime maximă (JWT poate fi ~300+ caractere)
+                    if value.len() > 4096 {
                         return Err(BoundaryError::CookieTooLong(name.clone()));
                     }
 
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_value_too_long() {
-        let long_val = "a".repeat(257);
+        let long_val = "a".repeat(4097);
         let r = SafeCookies::parse_from_header(Some(&format!("token={}", long_val)));
         assert!(r.is_err());
     }

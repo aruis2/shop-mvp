@@ -237,6 +237,9 @@ pub async fn security_headers_middleware(
         Body::from(body_bytes.to_vec())
     };
 
+    // 🔒 Eliminăm Content-Length (se va recalcula automat de hyper)
+    parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+
     // ─── HEADERE DE SECURITATE ───────────────────────────────
     parts.headers.insert(
         axum::http::header::HeaderName::from_static("strict-transport-security"),

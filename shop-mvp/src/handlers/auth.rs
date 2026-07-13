@@ -4,15 +4,13 @@
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
 
 use std::sync::OnceLock;
 use crate::state::AuthState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err_json;
+use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::url_encode::url_encode;
@@ -44,13 +42,13 @@ pub async fn login_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AuthPageQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     // Dacă e deja autentificat, redirect la home
     if let Some(cookie) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
         if let Some(token) = crate::cookie::get_cookie(cookie, "token") {
             if s.auth.verify_token(token).await.is_ok() {
                 let dest = q.redirect.clone().unwrap_or_else(|| format!("{}/", bp));
-                return Ok(redirect_html(&dest));
+                return redirect_html(&dest);
             }
         }
     }
@@ -68,7 +66,7 @@ pub async fn login_page(
     });
     if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "auth/login.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "auth/login.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn signup_page(
@@ -76,13 +74,13 @@ pub async fn signup_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AuthPageQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     // Dacă e deja autentificat, redirect la home
     if let Some(cookie) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
         if let Some(token) = crate::cookie::get_cookie(cookie, "token") {
             if s.auth.verify_token(token).await.is_ok() {
                 let dest = q.redirect.clone().unwrap_or_else(|| format!("{}/", bp));
-                return Ok(redirect_html(&dest));
+                return redirect_html(&dest);
             }
         }
     }
@@ -96,7 +94,7 @@ pub async fn signup_page(
     });
     if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "auth/signup.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "auth/signup.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// Parsează body-ul ca JSON sau form-urlencoded
@@ -190,7 +188,7 @@ async fn auth_login(s: &AuthState, body: &str, referer: Option<&str>) -> Result<
     s.auth.login(req).await.map(move |r| (r, redirect)).map_err(|e| e.to_string())
 }
 
-fn auth_response(resp: Result<(rust_auth::LoginResponse, String), String>, bp: &str) -> Response {
+fn auth_response(resp: Result<(rust_auth::LoginResponse, String), String>, bp: &str) -> SafeResponse {
     match resp {
         Ok((r, redirect)) => {
             let raw_dest = if redirect.is_empty() || redirect == format!("{bp}/") {
@@ -202,17 +200,12 @@ fn auth_response(resp: Result<(rust_auth::LoginResponse, String), String>, bp: &
             let dest = OutputFactory::safe_redirect_url(&raw_dest, "/")
                 .unwrap_or_else(|| format!("{bp}/"));
             debug_log!(target: "auth::response", "redirect: {} -> {}", raw_dest, dest);
-            let cookie = crate::cookie::set_cookie("token", &r.token, 86400 * 7);
-            let mut resp = (StatusCode::FOUND, [("Location", dest.as_str())]).into_response();
-            resp.headers_mut().insert(
-                axum::http::header::SET_COOKIE,
-                axum::http::HeaderValue::from_str(&cookie).unwrap(),
-            );
-            resp
+            SafeResponse::redirect(dest)
+                .with_cookie("token", &r.token, 86400 * 7)
         }
         Err(e) => {
             tracing::error!(target: "auth::response", "auth eșuat: {}", e);
-            (StatusCode::BAD_REQUEST, e).into_response()
+            SafeResponse::bad_request(e)
         }
     }
 }
@@ -222,7 +215,7 @@ pub async fn signup_handler(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let ip = client_ip(&headers);
     if !rate_limiter().check(&ip) {
         debug_warn!(target: "auth::ratelimit", "Rate limit signup de la IP={}", ip);
@@ -316,18 +309,18 @@ pub async fn inject_user_ctx_json(
 }
 
 /// 🔒 Redirect sigur — URL-ul trece prin OutputFactory::safe_redirect_url
-fn safe_redirect(dest: &str, _bp: &str) -> Response {
+fn safe_redirect(dest: &str, _bp: &str) -> SafeResponse {
     let safe = OutputFactory::safe_redirect_url(dest, "/")
         .unwrap_or_else(|| "/".to_string());
-    (StatusCode::FOUND, [("Location", safe)]).into_response()
+    SafeResponse::redirect(safe)
 }
 
-fn redirect_html(url: &str) -> Html<String> {
+fn redirect_html(url: &str) -> SafeResponse {
     // 🔒 OutputFactory: validează URL-ul, previne XSS (javascript:) și open redirect
     // 🔒 Fără inline script (blocat de CSP script-src 'self'). Meta refresh e 100% HTML, nu JS.
     let safe_url = OutputFactory::safe_redirect_url(url, "/")
         .unwrap_or_else(|| "/".to_string());
-    Html(format!(
+    SafeResponse::html(format!(
         r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_url}"></head><body><p><a href="{safe_url}">Continuă</a></p></body></html>"#
     ))
 }
@@ -337,7 +330,7 @@ pub async fn me_handler(
     State(s): State<AuthState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-) -> Response {
+) -> SafeResponse {
     let token = match headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "token"))
@@ -364,10 +357,7 @@ pub async fn me_handler(
         "role": user.role,
     });
 
-    match render_or_err_json(&s.renderer, "auth/me.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
-        Ok(html) => html.into_response(),
-        Err((code, msg)) => (code, msg).into_response(),
-    }
+    render_safe_json(&s.renderer, "auth/me.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// Extrage calea dintr-un Referer URL: http://host/path → Some("/path")
@@ -381,9 +371,7 @@ fn extract_path_from_referer(referer: &str) -> Option<String> {
 pub async fn logout_handler(
     headers: axum::http::HeaderMap,
     Query(q): Query<LogoutQuery>,
-) -> Response {
-    let cookie = crate::cookie::remove_cookie("token");
-    
+) -> SafeResponse {
     // Determină URL-ul curent: ?redirect= → referer → /
     let redirect_val = q.redirect.clone();
     let current_url = redirect_val
@@ -403,12 +391,7 @@ pub async fn logout_handler(
     
     debug_log!(target: "auth::logout", "logout: redirect={:?} -> path={} safe={}", q.redirect, current_path, safe_path);
     
-    let mut resp = (StatusCode::FOUND, [("Location", safe_path.as_str())]).into_response();
-    resp.headers_mut().insert(
-        axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&cookie).unwrap(),
-    );
-    resp
+    SafeResponse::redirect(safe_path).without_cookie("token")
 }
 
 pub async fn login_handler(
@@ -416,7 +399,7 @@ pub async fn login_handler(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let ip = client_ip(&headers);
     if !rate_limiter().check(&ip) {
         debug_warn!(target: "auth::ratelimit", "Rate limit login de la IP={}", ip);
@@ -483,7 +466,7 @@ pub async fn delete_account_handler(
     State(s): State<AuthState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-) -> Response {
+) -> SafeResponse {
     // Verifică autentificarea
     let token = match headers.get("cookie")
         .and_then(|v| v.to_str().ok())
@@ -501,12 +484,7 @@ pub async fn delete_account_handler(
             match s.auth.delete_user(user.id).await {
                 Ok(_) => {
                     let dest = format!("{}/?success=Cont+șters", bp);
-                    let mut resp = safe_redirect(&dest, &bp);
-                    resp.headers_mut().insert(
-                        axum::http::header::HeaderName::from_static("set-cookie"),
-                        axum::http::HeaderValue::from_static("token=; Max-Age=0; Path=/"),
-                    );
-                    resp
+                    safe_redirect(&dest, &bp).without_cookie("token")
                 }
                 Err(e) => {
                     let err_msg = e.to_string().replace(' ', "+");
@@ -526,13 +504,13 @@ pub async fn delete_account_handler(
 pub async fn export_data_handler(
     State(s): State<AuthState>,
     headers: axum::http::HeaderMap,
-) -> Response {
+) -> SafeResponse {
     let token = match headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "token"))
     {
         Some(t) => t.to_string(),
-        None => return (StatusCode::UNAUTHORIZED, "Neautentificat").into_response(),
+        None => return SafeResponse::unauthorized("Neautentificat"),
     };
 
     match s.auth.verify_token(&token).await {
@@ -548,12 +526,10 @@ pub async fn export_data_handler(
                 "exported_at": chrono::Utc::now().to_rfc3339(),
                 "note": "Aceste date au fost exportate conform GDPR Art. 20."
             });
-            (StatusCode::OK, [
-                ("Content-Type", "application/json; charset=utf-8"),
-                ("Content-Disposition", "attachment; filename=\"date-personale.json\""),
-            ], serde_json::to_string_pretty(&data).unwrap_or_default()).into_response()
+            SafeResponse::json(&data)
+                .with_header("Content-Disposition", "attachment; filename=\"date-personale.json\"")
         }
-        Err(_) => (StatusCode::UNAUTHORIZED, "Token invalid").into_response(),
+        Err(_) => SafeResponse::unauthorized("Token invalid"),
     }
 }
 
@@ -566,9 +542,9 @@ pub async fn privacy_policy_page(
     State(s): State<AuthState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let data = serde_json::json!({"title": "Politică de confidențialitate — Shop MVP"});
-    render_or_err_json(&s.renderer, "auth/privacy.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "auth/privacy.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// GET /security — Politica de securitate (PCI DSS)
@@ -576,7 +552,7 @@ pub async fn security_policy_page(
     State(s): State<AuthState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let data = serde_json::json!({"title": "Securitate — Shop MVP"});
-    render_or_err_json(&s.renderer, "auth/security.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "auth/security.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

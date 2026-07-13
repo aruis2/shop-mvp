@@ -4,7 +4,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     response::Html,
 };
 use serde::Deserialize;
@@ -55,6 +55,37 @@ pub async fn render_or_err_json(
         })
 }
 
+/// ✅ V7: Versiunea SafeResponse a render_or_err_json.
+/// Returnează SafeResponse direct — output garantat sigur.
+pub async fn render_safe_json(
+    renderer: &RenderService,
+    template: &str,
+    data: &serde_json::Value,
+    base_path: &str,
+    headers: &HeaderMap,
+    auth_repo: &dyn rust_auth::AuthRepo,
+) -> SafeResponse {
+    match render_or_err_json(renderer, template, data, base_path, headers, auth_repo).await {
+        Ok(html) => SafeResponse::html(html.0),
+        Err((_code, msg)) => SafeResponse::server_error(msg),
+    }
+}
+
+/// ✅ V7: Versiunea SafeResponse a render_or_err.
+pub async fn render_safe(
+    renderer: &RenderService,
+    template: &str,
+    ctx: &Context,
+    base_path: &str,
+    headers: &HeaderMap,
+    auth_repo: &dyn rust_auth::AuthRepo,
+) -> SafeResponse {
+    match render_or_err(renderer, template, ctx, base_path, headers, auth_repo).await {
+        Ok(html) => SafeResponse::html(html.0),
+        Err((_code, msg)) => SafeResponse::server_error(msg),
+    }
+}
+
 #[derive(Deserialize, Default)]
 pub struct ProductsQuery {
     pub page: Option<i64>,
@@ -89,10 +120,10 @@ pub async fn home_page(
     DetectBasePath(bp): DetectBasePath,
     headers: HeaderMap,
     Query(q): Query<HomeQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let mut data = serde_json::json!({"title": "Acasă — Shop MVP"});
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "index.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "index.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn search_page(
@@ -100,14 +131,14 @@ pub async fn search_page(
     DetectBasePath(bp): DetectBasePath,
     headers: HeaderMap,
     Query(q): Query<SearchQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     // 🏭 InputFactory: validează query-ul de căutare (permitem și gol)
     let query_str = if q.q.is_empty() {
         String::new()
     } else {
         match InputFactory::parse_search(&q.q) {
             Ok(sq) => sq.as_str().to_string(),
-            Err(_) => return Err((StatusCode::BAD_REQUEST, "Query invalid".to_string())),
+            Err(_) => return SafeResponse::bad_request("Query invalid"),
         }
     };
     if query_str.is_empty() {
@@ -119,11 +150,13 @@ pub async fn search_page(
             "total_pages": 1,
             "query": "",
         });
-        return render_or_err_json(&s.renderer, "products/search.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await;
+        return render_safe_json(&s.renderer, "products/search.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await;
     }
     let page = QueryValidator::page(q.page, 1);
-    let (products, total) = s.products.search_products(&query_str, page, PRODUCTS_PER_PAGE)
-        .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let (products, total) = match s.products.search_products(&query_str, page, PRODUCTS_PER_PAGE).await {
+        Ok(v) => v,
+        Err(e) => return SafeResponse::server_error(e.to_string()),
+    };
 
     let products_json: Vec<serde_json::Value> = products.iter().map(|p| {
         let price_lei = p.price_new.map(|v| format!("{:.2}", v as f64 / 100.0));
@@ -144,7 +177,7 @@ pub async fn search_page(
         "total_pages": total_pages,
         "query": query_str,
     });
-    render_or_err_json(&s.renderer, "products/search.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "products/search.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn products_page(
@@ -152,11 +185,13 @@ pub async fn products_page(
     DetectBasePath(bp): DetectBasePath,
     headers: HeaderMap,
     Query(q): Query<ProductsQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let page = QueryValidator::page(q.page, 1);
     let cat_id = q.category;
-    let (all_products, db_total) = s.products.get_products(None, page, PRODUCTS_PER_PAGE)
-        .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let (all_products, db_total) = match s.products.get_products(None, page, PRODUCTS_PER_PAGE).await {
+        Ok(v) => v,
+        Err(e) => return SafeResponse::server_error(e.to_string()),
+    };
 
     // Filtrare pe categorii client-side (simplu, fără modificare trait)
     let products: Vec<_> = if let Some(cid) = cat_id {
@@ -190,7 +225,7 @@ pub async fn products_page(
     });
     if q.added.is_some() { data["added"] = serde_json::json!("✓ Produs adăugat în coș"); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "products/products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "products/products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 #[derive(Deserialize)]
@@ -205,10 +240,12 @@ pub async fn product_detail_page(
     headers: HeaderMap,
     Path(slug): Path<String>,
     Query(q): Query<DetailQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
-    let product = s.products.get_by_slug(&slug).await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((axum::http::StatusCode::NOT_FOUND, "Produs negăsit".into()))?;
+) -> SafeResponse {
+    let product = match s.products.get_by_slug(&slug).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return SafeResponse::not_found(),
+        Err(e) => return SafeResponse::server_error(e.to_string()),
+    };
 
     let price_lei = product.price_new.map(|v| format!("{:.2}", v as f64 / 100.0));
     let specs_arr: Vec<serde_json::Value> = product.specs.as_object().map(|m| {
@@ -228,5 +265,5 @@ pub async fn product_detail_page(
     });
     if q.added.is_some() { data["added"] = serde_json::json!("✓ Produs adăugat în coș"); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "products/product_detail.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "products/product_detail.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

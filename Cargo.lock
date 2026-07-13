@@ -1531,6 +1531,7 @@ version = "0.1.0"
 name = "rust-trust-boundary"
 version = "0.2.0"
 dependencies = [
+ "axum",
  "http",
  "serde",
  "serde_json",

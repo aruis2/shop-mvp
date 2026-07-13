@@ -4,14 +4,13 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Response},
+    response::IntoResponse,
 };
 use serde::Deserialize;
 
 use crate::state::OrderState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::{render_or_err_json};
+use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::url_encode::url_encode;
@@ -44,7 +43,7 @@ pub async fn checkout_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<CheckoutQuery>,
-) -> Response {
+) -> SafeResponse {
     let sid = q.session_id.clone().or_else(|| {
         // 🏭 InputFactory: validează header-ul x-session-id
         headers.get("x-session-id")
@@ -109,10 +108,7 @@ pub async fn checkout_page(
         "item_count": cart.item_count,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    match render_or_err_json(&s.renderer, "orders/checkout.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
-        Ok(html) => html.into_response(),
-        Err((code, msg)) => (code, msg).into_response(),
-    }
+    render_safe_json(&s.renderer, "orders/checkout.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 /// Date de checkout validate prin InputFactory
@@ -126,22 +122,22 @@ struct CheckoutParsed {
     is_private: bool,
 }
 
-fn error_redirect(dest: &str, msg: &str) -> Response {
+fn error_redirect(dest: &str, msg: &str) -> SafeResponse {
     debug_warn!(target: "orders", "error_redirect: {} -> {}", msg, dest);
     // 🔒 OutputFactory: validează URL + sanitizează mesajul
     let safe_dest = OutputFactory::safe_redirect_url(dest, "/")
         .unwrap_or_else(|| "/".to_string());
     let safe_msg = OutputFactory::safe_error_msg(msg);
     let encoded = url_encode(&safe_msg);
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, encoded))]).into_response()
+    SafeResponse::redirect(format!("{}?error={}", safe_dest, encoded))
 }
 
-fn redirect_to_login(base_path: &str) -> Response {
+fn redirect_to_login(base_path: &str) -> SafeResponse {
     // 🔒 OutputFactory: validează URL-ul redirect
     let dest = format!("{}/login?redirect={}/orders", base_path, base_path);
     let safe_dest = OutputFactory::safe_redirect_url(&dest, "/")
         .unwrap_or_else(|| "/login".to_string());
-    (StatusCode::FOUND, [("Location", safe_dest)]).into_response()
+    SafeResponse::redirect(safe_dest)
 }
 
 pub async fn checkout_handler(
@@ -149,7 +145,7 @@ pub async fn checkout_handler(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let token_str = extract_token(&headers).unwrap_or("");
 
     // 🏭 InputFactory: parsează și validează TOT inputul
@@ -282,13 +278,13 @@ pub async fn checkout_handler(
             }
 
             // 302 redirect la Stripe sau la success_url (mock)
-            (StatusCode::FOUND, [("Location", payment_session.checkout_url)]).into_response()
+            SafeResponse::redirect(payment_session.checkout_url)
         }
         Err(e) => {
             tracing::error!(target: "orders::stripe", "Checkout eșuat: {}", e);
             let tk = if token_str.is_empty() { String::new() } else { format!("?token={}", token_str) };
             let dest = format!("{}/orders{}", bp, tk);
-            (StatusCode::FOUND, [("Location", dest)]).into_response()
+            SafeResponse::redirect(dest)
         }
     }
 }
@@ -298,7 +294,7 @@ pub async fn order_pay(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Path(order_id): Path<uuid::Uuid>,
-) -> Response {
+) -> SafeResponse {
     let token = match extract_token(&headers) {
         Some(t) => t.to_string(),
         None => {
@@ -353,7 +349,7 @@ pub async fn order_pay(
                 tracing::info!(target: "orders::pay", "✅ Mock plată instant pentru comanda {}", order.id);
             }
             // 302 redirect la Stripe sau la success_url (mock)
-            (StatusCode::FOUND, [("Location", session.checkout_url)]).into_response()
+            SafeResponse::redirect(session.checkout_url)
         }
         Err(e) => {
             tracing::error!(target: "orders::pay", "Checkout eșuat pentru comanda {}: {}", order_id, e);
@@ -374,7 +370,7 @@ pub async fn orders_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<OrdersQuery>,
-) -> Response {
+) -> SafeResponse {
     // 🔒 Token doar din header-e (nu din query param — risc de securitate)
     let token = extract_token(&headers);
     let user = match token {
@@ -390,7 +386,7 @@ pub async fn orders_page(
     let offset = (page - 1) * ORDERS_PER_PAGE;
     let (orders, total) = match s.orders.get_orders_by_user(user.id, ORDERS_PER_PAGE, offset).await {
         Ok(o) => o,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return SafeResponse::server_error(e.to_string()),
     };
     let total_pages = (total as f64 / ORDERS_PER_PAGE as f64).ceil() as i64;
 
@@ -413,10 +409,7 @@ pub async fn orders_page(
         "total_pages": total_pages,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    match render_or_err_json(&s.renderer, "orders/orders.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await {
-        Ok(html) => html.into_response(),
-        Err((code, msg)) => (code, msg).into_response(),
-    }
+    render_safe_json(&s.renderer, "orders/orders.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 #[derive(Deserialize)]
@@ -429,7 +422,7 @@ pub async fn success_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<SuccessQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let oid = q.order_id.as_ref().and_then(|id| uuid::Uuid::parse_str(id).ok());
     let mut data = serde_json::json!({"title": "Comandă înregistrată! — Shop MVP"});
 
@@ -465,7 +458,7 @@ pub async fn success_page(
         }
     }
 
-    render_or_err_json(&s.renderer, "orders/success.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "orders/success.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 // ============================================================================

@@ -6,15 +6,13 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 
 use crate::state::AdminState;
 use crate::render::DetectBasePath;
-use crate::handlers::products::render_or_err_json;
+use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
 use crate::types::parser::{parse_any_into, get_field};
 use crate::url_encode::url_encode;
@@ -46,14 +44,14 @@ async fn verify_admin(
     Ok(user)
 }
 
-fn render_admin_redirect(base_path: &str, redirect_path: &str) -> Html<String> {
+fn render_admin_redirect(base_path: &str, redirect_path: &str) -> SafeResponse {
     let bp = OutputFactory::text_html(base_path);
     let rp = OutputFactory::text_html(redirect_path);
     // 🔒 Fără inline script (blocat de CSP script-src 'self').
     // Meta refresh e 100% HTML, nu JS — respectă CSP.
     let url = format!("{}/login?redirect={}", bp, rp);
     let safe_url = OutputFactory::text_html(&url);
-    Html(format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_url}"></head><body><p><a href="{safe_url}">Continuă</a></p></body></html>"#))
+    SafeResponse::html(format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_url}"></head><body><p><a href="{safe_url}">Continuă</a></p></body></html>"#))
 }
 
 async fn verify_or_redirect(
@@ -62,7 +60,7 @@ async fn verify_or_redirect(
     auth: &dyn rust_auth::AuthRepo,
     bp: &str,
     redirect_path: &str,
-) -> Result<rust_auth::User, Html<String>> {
+) -> Result<rust_auth::User, SafeResponse> {
     let rp = if redirect_path.is_empty() { format!("{}/admin", bp) } else { redirect_path.to_string() };
     match verify_admin(headers, q, auth).await {
         Ok(user) => Ok(user),
@@ -71,8 +69,7 @@ async fn verify_or_redirect(
             if status == axum::http::StatusCode::FORBIDDEN {
                 // Autentificat dar nu e admin → redirect la home, nu la login
                 let dest = format!("{}/?error={}", bp, url_encode(&msg));
-                let safe_dest = OutputFactory::text_html(&dest);
-                Err(Html(format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_dest}"></head><body><p><a href="{safe_dest}">Continuă</a></p></body></html>"#)))
+                Err(SafeResponse::html(format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={dest}"></head><body><p><a href="{dest}">Continuă</a></p></body></html>"#)))
             } else {
                 // Neautentificat → redirect la login
                 Err(render_admin_redirect(bp, &rp))
@@ -99,15 +96,17 @@ pub async fn admin_products_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AdminQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, "/admin").await {
         Ok(u) => u,
-        Err(html) => return Ok(html),
+        Err(resp) => return resp,
     };
 
     let page = QueryValidator::page(q.page, 1);
-    let (products, total) = s.products.get_products(None, page, ADMIN_PER_PAGE)
-        .await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let (products, total) = match s.products.get_products(None, page, ADMIN_PER_PAGE).await {
+        Ok(v) => v,
+        Err(e) => return SafeResponse::server_error(e.to_string()),
+    };
     let total_pages = (total as f64 / ADMIN_PER_PAGE as f64).ceil() as i64;
 
     let products_json: Vec<serde_json::Value> = products.iter().map(|p| {
@@ -127,7 +126,7 @@ pub async fn admin_products_page(
         "total_pages": total_pages,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "admin/admin_products.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_new_page(
@@ -135,17 +134,17 @@ pub async fn admin_product_new_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AdminQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, "/admin/product/new").await {
         Ok(u) => u,
-        Err(html) => return Ok(html),
+        Err(resp) => return resp,
     };
     let mut data = serde_json::json!({
         "title": "Adaugă produs — Admin",
         "product": serde_json::Value::Null,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_create(
@@ -154,10 +153,10 @@ pub async fn admin_product_create(
     headers: axum::http::HeaderMap,
     Query(q): Query<AdminQuery>,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, "/admin/product/new").await {
         Ok(u) => u,
-        Err(_) => return render_admin_redirect(&bp, "/admin/product/new").into_response(),
+        Err(resp) => return resp,
     };
 
     // 🏭 InputFactory: validează toate cîmpurile produsului
@@ -213,16 +212,18 @@ pub async fn admin_product_edit_page(
     headers: axum::http::HeaderMap,
     Path(slug): Path<String>,
     Query(q): Query<AdminQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let rp = format!("/admin/product/{}/edit", &slug);
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, &rp).await {
         Ok(u) => u,
-        Err(html) => return Ok(html),
+        Err(resp) => return resp,
     };
 
-    let product = s.products.get_by_slug(&slug).await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((axum::http::StatusCode::NOT_FOUND, "Produs negăsit".into()))?;
+    let product = match s.products.get_by_slug(&slug).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return SafeResponse::not_found(),
+        Err(e) => return SafeResponse::server_error(e.to_string()),
+    };
 
     let mut data = serde_json::json!({
         "title": "Editează produs — Admin",
@@ -233,7 +234,7 @@ pub async fn admin_product_edit_page(
         },
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "admin/admin_product_form.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
 pub async fn admin_product_update(
@@ -243,11 +244,11 @@ pub async fn admin_product_update(
     Path(slug): Path<String>,
     Query(q): Query<AdminQuery>,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let rp = format!("/admin/product/{}/edit", &slug);
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, &rp).await {
         Ok(u) => u,
-        Err(_) => return render_admin_redirect(&bp, &rp).into_response(),
+        Err(resp) => return resp,
     };
 
     // 🏭 InputFactory: validează cîmpurile opționale
@@ -292,14 +293,14 @@ pub async fn admin_product_update(
     }
 }
 
-fn redirect_to_admin(headers: &axum::http::HeaderMap, bp: &str) -> Response {
+fn redirect_to_admin(headers: &axum::http::HeaderMap, bp: &str) -> SafeResponse {
     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("");
     let dest = referer.split('?').next().unwrap_or("").to_string();
     let dest = if dest.is_empty() { format!("{}/admin", bp) } else { dest };
     // 🔒 OutputFactory: validează URL-ul redirect
     let safe_dest = OutputFactory::safe_redirect_url(&dest, "/")
         .unwrap_or_else(|| format!("{}/admin", bp));
-    (StatusCode::FOUND, [("Location", safe_dest)]).into_response()
+    SafeResponse::redirect(safe_dest)
 }
 
 pub async fn admin_product_delete(
@@ -308,11 +309,11 @@ pub async fn admin_product_delete(
     headers: axum::http::HeaderMap,
     Path(slug): Path<String>,
     Query(q): Query<AdminQuery>,
-) -> Response {
+) -> SafeResponse {
     let rp = format!("/admin/product/{}/delete", &slug);
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, &rp).await {
         Ok(u) => u,
-        Err(_) => return render_admin_redirect(&bp, &rp).into_response(),
+        Err(resp) => return resp,
     };
     match s.products.delete_product(&slug).await {
         Ok(_) => redirect_to_admin(&headers, &bp),
@@ -330,16 +331,18 @@ pub async fn admin_orders_page(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AdminQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, "/admin/orders").await {
         Ok(u) => u,
-        Err(html) => return Ok(html),
+        Err(resp) => return resp,
     };
 
     let page = QueryValidator::page(q.page, 1);
     let offset = (page - 1) * ADMIN_PER_PAGE;
-    let (orders, total) = s.orders.get_all_orders(ADMIN_PER_PAGE, offset).await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let (orders, total) = match s.orders.get_all_orders(ADMIN_PER_PAGE, offset).await {
+        Ok(v) => v,
+        Err(e) => return SafeResponse::server_error(e.to_string()),
+    };
     let total_pages = (total as f64 / ADMIN_PER_PAGE as f64).ceil() as i64;
 
     let orders_json: Vec<serde_json::Value> = orders.iter().map(|o| {
@@ -363,10 +366,10 @@ pub async fn admin_orders_page(
         "total_pages": total_pages,
     });
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
-    render_or_err_json(&s.renderer, "admin/admin_orders.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "admin/admin_orders.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Response {
+fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> SafeResponse {
     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("");
     let base = referer.split('?').next().unwrap_or("");
     let dest = if base.is_empty() { format!("{}/admin/orders", bp) } else { base.to_string() };
@@ -375,7 +378,7 @@ fn error_redirect(headers: &axum::http::HeaderMap, bp: &str, msg: &str) -> Respo
         .unwrap_or_else(|| format!("{}/admin/orders", bp));
     let safe_msg = OutputFactory::safe_error_msg(msg);
     debug_warn!(target: "admin", "error_redirect: {} -> {} (referer: {})", msg, dest, referer);
-    (StatusCode::FOUND, [("Location", format!("{}?error={}", safe_dest, url_encode(&safe_msg)))]).into_response()
+    SafeResponse::redirect(format!("{}?error={}", safe_dest, url_encode(&safe_msg)))
 }
 
 // Folosește url_encode din crate::url_encode în loc de funcția locală
@@ -387,11 +390,11 @@ pub async fn admin_order_update_status(
     Path(id): Path<uuid::Uuid>,
     Query(q): Query<AdminQuery>,
     body: String,
-) -> Response {
+) -> SafeResponse {
     let rp = format!("/admin/order/{}/status", &id);
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, &rp).await {
         Ok(u) => u,
-        Err(_) => return render_admin_redirect(&bp, &rp).into_response(),
+        Err(resp) => return resp,
     };
 
     // 🏭 InputFactory: parsează statusul
@@ -452,7 +455,7 @@ pub async fn admin_order_update_status(
 
     // 🔁 Redirect înapoi la /admin/orders, nu la /admin
     let dest = format!("{}/admin/orders", bp);
-    (StatusCode::FOUND, [("Location", dest)]).into_response()
+    SafeResponse::redirect(dest)
 }
 
 pub async fn admin_migrate_orders(
@@ -480,10 +483,10 @@ pub async fn admin_logs(
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
     Query(q): Query<AdminQuery>,
-) -> Result<Html<String>, (axum::http::StatusCode, String)> {
+) -> SafeResponse {
     let _user = match verify_or_redirect(&headers, &q, &*s.auth, &bp, "/admin/logs").await {
         Ok(u) => u,
-        Err(html) => return Ok(html),
+        Err(resp) => return resp,
     };
 
     let log = crate::get_query_log();
@@ -494,5 +497,5 @@ pub async fn admin_logs(
         "lines": lines,
         "total": crate::get_query_count(),
     });
-    render_or_err_json(&s.renderer, "admin/admin_logs.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
+    render_safe_json(&s.renderer, "admin/admin_logs.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
