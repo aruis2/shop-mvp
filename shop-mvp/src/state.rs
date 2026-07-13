@@ -9,6 +9,7 @@
 // e un tip diferit, nu poți greși.
 
 use std::sync::Arc;
+use axum::Router;
 use axum::extract::FromRef;
 use rust_auth::AuthRepo;
 use rust_cart::CartRepo;
@@ -20,6 +21,13 @@ use sqlx::PgPool;
 // FromRef e folosit de macro-urile axum, importul e necesar
 
 use crate::render::RenderService;
+
+// ─── Front Controller State (inner router) ─────────────────────────
+
+#[derive(Clone)]
+pub(crate) struct FcState {
+    pub inner_router: Arc<Router>,
+}
 
 // ─── Master state (doar pentru bootstrap, NU expus handlerelor) ──────
 
@@ -34,6 +42,15 @@ pub(crate) struct AppState {
     pub site_url: String,
     pub max_qty: i32,
     pub db: PgPool,
+    pub fc: FcState,
+}
+
+// ─── FromRef: convertește AppState → FcState ──────────────────────
+
+impl FromRef<AppState> for FcState {
+    fn from_ref(state: &AppState) -> Self {
+        state.fc.clone()
+    }
 }
 
 // ─── FromRef: convertește AppState → domain state ──────────────────

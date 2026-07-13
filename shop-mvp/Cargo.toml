@@ -7,6 +7,7 @@ description = "🛒 MVP Marketplace — doar autentificare, produse și coș"
 [dependencies]
 # Web framework
 axum = { version = "0.8", features = ["json", "macros"] }
+http = "1.0"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "trace", "fs"] }
 tokio = { version = "1.52", features = ["full"] }

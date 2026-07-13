@@ -1,37 +1,191 @@
 // =============================================================================
-// 🚦 Front Controller V3 — UNICUL punct de intrare/ieșire (TrustBoundary complet)
+// 🚦 Front Controller V5 — UNICUL punct de intrare/ieșire (fallback unic)
 // =============================================================================
 // FILOSOFIE: TRUST-BOUNDARY.md — tot ce intră/iese trece PRIN AICI
 // STANDARD: OWASP ASVS V5.1 (Input Validation), V10 (Output Encoding)
 //            OWASP API Top 10 #1 (BOLA)
 // =============================================================================
 //
-// Acest modul înlocuiește toate rutele împrăștiate din main.rs.
-// Rutele sunt DEFINITE aici, centralizat.
+// V5: O singură rută de fallback. TOATE request-urile trec prin:
+//   1. TrustBoundary — validează TOT (path, headere, cookie, body, CSRF)
+//   2. Inner router — reconstruiește request-ul și face routing normal
 //
-// Middleware:
-//   TrustBoundary (validare input) + SafeResponse (headere securitate automate)
-//   = înlocuiește csrf_middleware + security_headers + session_timeout
+// NICIUN handler nu poate fi chemat fără să treacă prin TrustBoundary.
 // =============================================================================
 
+use std::sync::Arc;
 use axum::{
+    body::Body,
+    extract::{FromRef, Request, State},
     http::HeaderValue,
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
+use rust_trust_boundary::{SafeRequest, TrustBoundary};
 use rust_url_normalizer::strip_trailing_slash;
+use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
 use crate::handlers::{admin, auth, cart, orders, products};
-use crate::state::AppState;
-use crate::trust_boundary;
+use crate::state::{AppState, FcState};
+use crate::trust_boundary as tb;
 
-/// Adaugă headere de securitate AUTOMAT la ORICE răspuns.
-///
-/// Aceasta e GRANIȚA DE IEȘIRE — tot ce iese din aplicație trece pe aici.
-/// Handler-ele nu trebuie să-și facă griji pentru securitatea outputului.
+/// Construiește routerul INTERN — conține TOATE rutele reale.
+pub fn build_inner_router(
+    products: &Arc<dyn rust_marketplace_products::ProductRepo>,
+    auth: &Arc<dyn rust_auth::AuthRepo>,
+    cart: &Arc<dyn rust_cart::CartRepo>,
+    orders: &Arc<dyn rust_marketplace_orders::OrderRepo>,
+    payment: &Arc<dyn rust_payment::PaymentRepo>,
+    renderer: &crate::render::RenderService,
+    site_url: &str,
+    max_qty: i32,
+    db: &sqlx::PgPool,
+) -> Router {
+    let state = AppState {
+        products: products.clone(),
+        auth: auth.clone(),
+        cart: cart.clone(),
+        orders: orders.clone(),
+        payment: payment.clone(),
+        renderer: renderer.clone(),
+        site_url: site_url.to_string(),
+        max_qty,
+        db: db.clone(),
+        fc: FcState { inner_router: Arc::new(Router::new()) }, // temporary, replaced below
+    };
+
+    let router = Router::new()
+        .route("/", get(products::home_page))
+        .route("/products", get(products::products_page))
+        .route("/product/{slug}", get(products::product_detail_page))
+        .route("/search", get(products::search_page))
+        .route("/cart", get(cart::cart_page))
+        .route("/cart/add", post(cart::cart_add))
+        .route("/cart/remove", post(cart::cart_remove))
+        .route("/cart/update", post(cart::cart_update))
+        .route("/login", get(auth::login_page).post(auth::login_handler))
+        .route("/signup", get(auth::signup_page).post(auth::signup_handler))
+        .route("/logout", get(auth::logout_handler).post(auth::logout_handler))
+        .route("/me", get(auth::me_handler))
+        .route("/checkout", get(orders::checkout_page).post(orders::checkout_handler))
+        .route("/order/{id}/pay", post(orders::order_pay))
+        .route("/orders", get(orders::orders_page))
+        .route("/success", get(orders::success_page))
+        .route("/stripe/webhook", post(orders::stripe_webhook))
+        .route("/admin", get(admin::admin_products_page))
+        .route("/admin/orders", get(admin::admin_orders_page))
+        .route("/admin/order/{id}/status", post(admin::admin_order_update_status))
+        .route("/admin/product/new", get(admin::admin_product_new_page).post(admin::admin_product_create))
+        .route("/admin/product/{slug}/edit", get(admin::admin_product_edit_page).post(admin::admin_product_update))
+        .route("/admin/product/{slug}/delete", post(admin::admin_product_delete))
+        .route("/admin/logs", get(admin::admin_logs))
+        .route("/admin/migrate-orders", post(admin::admin_migrate_orders))
+        .route("/account/delete", post(auth::delete_account_handler))
+        .route("/account/export", get(auth::export_data_handler))
+        .route("/privacy", get(auth::privacy_policy_page))
+        .route("/security", get(auth::security_policy_page))
+        .route("/health", get(health_check))
+        .route("/.well-known/security.txt", get(security_txt))
+        .with_state(state);
+
+    router
+}
+
+/// Construiește routerul EXTERN — o SINGURĂ rută de fallback.
+pub fn build_outer_router(state: AppState) -> Router {
+    Router::new()
+        .fallback(fallback_handler)
+        .nest_service("/static", ServeDir::new("shop-mvp/static"))
+        // 🔐 TrustBoundary — validatează TOT la graniță
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            tb::trust_boundary_middleware,
+        ))
+        // 🔒 Security headers la ieșire
+        .layer(middleware::from_fn(security_headers_middleware))
+        // 🔗 URL normalization
+        .layer(middleware::from_fn(strip_trailing_slash))
+        // 📦 Body size limit
+        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
+        .with_state(state)
+}
+
+/// Handler unic de fallback — TOATE request-urile trec PRIN AICI.
+async fn fallback_handler(
+    State(state): State<AppState>,
+    req: Request,
+) -> Response {
+    let fc: FcState = FcState::from_ref(&state);
+    let request_id = SafeRequest::generate_request_id();
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let headers = req.headers().clone();
+    let site_url = state.site_url.clone();
+
+    // 1. Extrage body-ul ca bytes
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 2 * 1024 * 1024).await {
+        Ok(b) => b.to_vec(),
+        Err(_) => {
+            return (axum::http::StatusCode::BAD_REQUEST, "Body prea mare").into_response();
+        }
+    };
+
+    // 2. TrustBoundary validează TOT (path, headere, cookie, body, CSRF)
+    match TrustBoundary::parse_parts_with_config(&method, &uri, &headers, &body_bytes, &site_url) {
+        Ok(safe) => {
+            // Logare
+            tracing::info!(
+                target: "http",
+                "[{request_id}] {} {} (IP: {})",
+                safe.method_str(), safe.path_str(), safe.client_ip,
+            );
+
+            // CSRF (doar POST)
+            if safe.method.is_post() && !safe.verify_csrf() {
+                tracing::warn!(target: "csrf", "CSRF respins: {} {}", safe.method_str(), safe.path_str());
+                return (axum::http::StatusCode::FORBIDDEN, "CSRF respins").into_response();
+            }
+
+            // 3. Reconstruiește request-ul (metoda, uri, headere, body)
+            let mut builder = http::Request::builder()
+                .method(&method)
+                .uri(&uri);
+            for (name, value) in headers.iter() {
+                builder = builder.header(name, value);
+            }
+            let new_req = builder
+                .body(Body::from(body_bytes))
+                .unwrap_or_else(|_| {
+                    http::Request::new(Body::from(""))
+                });
+
+            // 4. Trimite la inner_router (rutele reale)
+            match fc.inner_router.as_ref().clone().oneshot(new_req).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::error!(target: "http", "Inner router error: {}", e);
+                    (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: "boundary", "Request invalid: {}", e);
+            let safe_resp = TrustBoundary::error_response(&e);
+            // Convert SafeResponse to Axum Response
+            let http_resp = safe_resp.into_http_response();
+            let (parts, body_str) = http_resp.into_parts();
+            Response::from_parts(parts, Body::from(body_str))
+        }
+    }
+}
+
+// ============================================================================
+// Security headers middleware — adăugate AUTOMAT la ORICE răspuns
+// ============================================================================
+
 pub async fn security_headers_middleware(
     req: axum::extract::Request,
     next: middleware::Next,
@@ -47,21 +201,16 @@ pub async fn security_headers_middleware(
     let mut resp = next.run(req).await;
     let headers = resp.headers_mut();
 
-    // HSTS — force HTTPS (OWASP ASVS V9)
     headers.insert(
         axum::http::header::HeaderName::from_static("strict-transport-security"),
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
-
-    // Cache-Control — prevent caching on sensitive pages (OWASP ASVS V8.3)
     if is_sensitive {
         headers.insert(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
         );
     }
-
-    // CSP — Content Security Policy (OWASP ASVS V10, HN Philosophy: zero JS)
     let csp = match std::env::var("APP_ENV").unwrap_or_default().as_str() {
         "prod" | "production" => {
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
@@ -70,111 +219,27 @@ pub async fn security_headers_middleware(
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
         }
     };
-    headers.insert(
-        axum::http::header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(csp),
-    );
-
-    // X-Frame-Options — anti-clickjacking (OWASP ASVS V4)
+    headers.insert(axum::http::header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
     headers.insert(
         axum::http::header::HeaderName::from_static("x-frame-options"),
         HeaderValue::from_static("DENY"),
     );
-
-    // X-Content-Type-Options — anti-MIME sniffing (OWASP ASVS V8)
     headers.insert(
         axum::http::header::HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
-
-    // Referrer-Policy (OWASP ASVS V9)
     headers.insert(
         axum::http::header::HeaderName::from_static("referrer-policy"),
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
-
     resp
 }
 
-/// Construiește UNICA rută a aplicației.
-///
-/// Toate rutele sunt declarate AICI, nu în main.rs.
-/// TrustBoundary middleware rulează înaintea ORICĂRUI handler.
-pub fn build_router(state: AppState) -> Router {
-    let app = Router::new()
-        // ─── Home & Produse ──────────────────
-        .route("/", get(products::home_page))
-        .route("/products", get(products::products_page))
-        .route("/product/{slug}", get(products::product_detail_page))
-        .route("/search", get(products::search_page))
-
-        // ─── Coș ──────────────────────────────
-        .route("/cart", get(cart::cart_page))
-        .route("/cart/add", post(cart::cart_add))
-        .route("/cart/remove", post(cart::cart_remove))
-        .route("/cart/update", post(cart::cart_update))
-
-        // ─── Autentificare ────────────────────
-        .route("/login", get(auth::login_page).post(auth::login_handler))
-        .route("/signup", get(auth::signup_page).post(auth::signup_handler))
-        .route("/logout", get(auth::logout_handler).post(auth::logout_handler))
-        .route("/me", get(auth::me_handler))
-
-        // ─── Checkout & Comenzi ───────────────
-        .route("/checkout", get(orders::checkout_page).post(orders::checkout_handler))
-        .route("/order/{id}/pay", post(orders::order_pay))
-        .route("/orders", get(orders::orders_page))
-        .route("/success", get(orders::success_page))
-        .route("/stripe/webhook", post(orders::stripe_webhook))
-
-        // ─── Admin ────────────────────────────
-        .route("/admin", get(admin::admin_products_page))
-        .route("/admin/orders", get(admin::admin_orders_page))
-        .route("/admin/order/{id}/status", post(admin::admin_order_update_status))
-        .route("/admin/product/new", get(admin::admin_product_new_page).post(admin::admin_product_create))
-        .route("/admin/product/{slug}/edit", get(admin::admin_product_edit_page).post(admin::admin_product_update))
-        .route("/admin/product/{slug}/delete", post(admin::admin_product_delete))
-        .route("/admin/logs", get(admin::admin_logs))
-        .route("/admin/migrate-orders", post(admin::admin_migrate_orders))
-
-        // ─── GDPR & Informațional ────────────
-        .route("/account/delete", post(auth::delete_account_handler))
-        .route("/account/export", get(auth::export_data_handler))
-        .route("/privacy", get(auth::privacy_policy_page))
-        .route("/security", get(auth::security_policy_page))
-
-        // ─── Utile ───────────────────────────
-        .route("/health", get(health_check))
-        .route("/.well-known/security.txt", get(security_txt))
-
-        // ─── Fișiere statice ─────────────────
-        .nest_service("/static", ServeDir::new("shop-mvp/static"))
-
-        // ─── Middleware ──────────────────────
-        // 🔐 TrustBoundary — CSRF, path/header/cookie validation, logging
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            trust_boundary::trust_boundary_middleware,
-        ))
-        // � Security headers — aplicate AUTOMAT la ORICE răspuns
-        // Aceasta e GRANIȚA DE IEȘIRE: CSP, HSTS, XFO, CTO
-        .layer(middleware::from_fn(security_headers_middleware))
-        // �🔗 URL normalization — trailing slash redirect 301
-        .layer(middleware::from_fn(strip_trailing_slash))
-        // 📦 Body size limit
-        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
-
-        // ─── State ───────────────────────────
-        .with_state(state);
-
-    app
-}
-
 // ============================================================================
-// Handlere interne (rămân aici până la migrarea completă la SafeResponse)
+// Handlere interne
 // ============================================================================
 
-async fn health_check() -> impl axum::response::IntoResponse {
+async fn health_check() -> impl IntoResponse {
     (axum::http::StatusCode::OK, "OK")
 }
 
@@ -182,8 +247,7 @@ async fn security_txt() -> impl IntoResponse {
     let contact = std::env::var("SECURITY_CONTACT")
         .unwrap_or_else(|_| "security@example.com".into());
     let content = format!(
-        "Contact: mailto:{}\nPreferred-Languages: ro, en\n",
-        contact
+        "Contact: mailto:{}\nPreferred-Languages: ro, en\n", contact
     );
     (axum::http::StatusCode::OK, [("Content-Type", "text/plain")], content)
 }

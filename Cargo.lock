@@ -1741,6 +1741,7 @@ dependencies = [
  "dotenvy",
  "hex",
  "hmac 0.12.1",
+ "http",
  "rust-auth",
  "rust-cart",
  "rust-marketplace-orders",

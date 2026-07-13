@@ -171,23 +171,21 @@ async fn main() -> anyhow::Result<()> {
     let renderer = RenderService::new(tera);
 
     // --- Master state (doar bootstrap, NU expus handlerelor) ---
+    // Construiește inner_router (rutele reale) mai întâi
+    let inner_router = front_controller::build_inner_router(
+        &products, &auth, &cart, &orders, &payment,
+        &renderer, &site_url, max_qty, &pool,
+    );
+
     let state = AppState {
         products, auth, cart, orders, payment,
         renderer, site_url, max_qty, db: pool,
+        fc: FcState { inner_router: Arc::new(inner_router) },
     };
 
-    // ====================================================================
-    // 🧩 Sub-rutere cu DOMAIN STATE-uri separate (capability-based)
-    // ====================================================================
-    // Fiecare sub-router are UN SINGUR tip de state și ACCES doar la
-    // capabilitățile de care are nevoie. Imposibil ca un handler auth să
-    // acceseze produse sau plăți — verificat la compilare.
-    // ====================================================================
-
-    // � Front Controller: UNICUL punct de intrare — rute definite centralizat
-    // TrustBoundary middleware (CSRF, security headers, path/header/cookie validation)
-    // e deja inclus în build_router()
-    let app = front_controller::build_router(state);
+    // 🚦 Front Controller: UNICUL punct de intrare/ieșire
+    // TrustBoundary (input) + Security Headers (output) + Single Fallback
+    let app = front_controller::build_outer_router(state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".into());
     let addr = format!("0.0.0.0:{port}");
