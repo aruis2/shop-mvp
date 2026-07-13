@@ -259,34 +259,33 @@ pub async fn cart_add(
 
 // ─── Remove from cart ───────────────────────────────────
 
+/// Formular pentru ștergere item din coș.
+/// Validat AUTOMAT de ValidatedForm extractor (V8).
+pub struct CartRemoveForm {
+    item_id: uuid::Uuid,
+}
+
+impl ValidateForm for CartRemoveForm {
+    fn validate(fields: &[FormField]) -> Result<Self, &'static str> {
+        let id_str = get_field(fields, "item_id")
+            .map_err(|_| "Date invalide")?;
+        let item_id = uuid::Uuid::parse_str(id_str)
+            .map_err(|_| "ID invalid")?;
+        Ok(CartRemoveForm { item_id })
+    }
+}
+
 pub async fn cart_remove(
     State(s): State<CartState>,
     headers: axum::http::HeaderMap,
-    body: String,
+    ValidatedForm(form): ValidatedForm<CartRemoveForm>,
 ) -> SafeResponse {
     let sid = headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
         .unwrap_or("anon");
 
-    // 🏭 InputFactory: parsează item_id
-    let item_id_str = match parse_any_into(&body, |fields| {
-        let id = get_field(fields, "item_id")?;
-        Ok(id.to_string())
-    }) {
-        Ok(id) => id,
-        Err(_) => return redirect_back(&headers, "/cart", Some("Date invalide")),
-    };
-
-    let item_id = match uuid::Uuid::parse_str(&item_id_str) {
-        Ok(id) => id,
-        Err(_) => {
-            // 🔗 #cart-container — păstrează poziția scroll după redirect
-            return SafeResponse::redirect("/cart?error=ID+invalid#cart-container");
-        }
-    };
-
-    if let Err(_) = s.cart.remove_item(sid, item_id).await {
+    if let Err(_) = s.cart.remove_item(sid, form.item_id).await {
         return SafeResponse::redirect("/cart?error=Ștergere+eșuată#cart-container");
     }
 
@@ -296,42 +295,43 @@ pub async fn cart_remove(
 
 // ─── Update quantity ────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct UpdateQtyForm {
-    pub item_id: String,
-    pub qty: String,
+/// Formular pentru actualizare cantitate în coș.
+/// Validat AUTOMAT de ValidatedForm extractor (V8).
+pub struct CartUpdateForm {
+    pub item_id: uuid::Uuid,
+    pub qty: i32,
+}
+
+impl ValidateForm for CartUpdateForm {
+    fn validate(fields: &[FormField]) -> Result<Self, &'static str> {
+        let id_str = get_field(fields, "item_id")
+            .map_err(|_| "Date invalide")?;
+        let item_id = uuid::Uuid::parse_str(id_str)
+            .map_err(|_| "ID invalid")?;
+        let qty_str = get_field(fields, "qty").unwrap_or("1");
+        let qty_val: i32 = qty_str.parse().unwrap_or(1);
+        let qty = InputFactory::parse_qty(qty_val)
+            .map_err(|_| "Cantitate invalidă")?;
+        Ok(CartUpdateForm { item_id, qty: qty.get() as i32 })
+    }
 }
 
 pub async fn cart_update(
     State(s): State<CartState>,
     headers: axum::http::HeaderMap,
-    body: String,
+    ValidatedForm(form): ValidatedForm<CartUpdateForm>,
 ) -> SafeResponse {
     let sid = headers.get("cookie")
         .and_then(|v| v.to_str().ok())
         .and_then(|c| crate::cookie::get_cookie(c, "session_id"))
         .unwrap_or("anon");
 
-    // Parsează item_id și qty
-    let (item_id, qty) = match parse_any_into(&body, |fields| {
-        let id_str = get_field(fields, "item_id")?;
-        let item_id = uuid::Uuid::parse_str(id_str)
-            .map_err(|_| InputError::InvalidSlug(id_str.to_string()))?;
-        let qty_str = get_field(fields, "qty").unwrap_or("1");
-        let qty_val: i32 = qty_str.parse().unwrap_or(1);
-        let qty = InputFactory::parse_qty(qty_val)?;
-        Ok::<(uuid::Uuid, i32), InputError>((item_id, qty.get() as i32))
-    }) {
-        Ok(v) => v,
-        Err(_) => return SafeResponse::redirect("/cart?error=Date+invalide#cart-container"),
-    };
-
     // Validează cantitatea
-    if let Err(_) = LogicFactory::verify_qty_in_range(qty, 1, s.max_qty) {
+    if let Err(_) = LogicFactory::verify_qty_in_range(form.qty, 1, s.max_qty) {
         return SafeResponse::redirect("/cart?error=Cantitate+invalidă#cart-container");
     }
 
-    if let Err(_) = s.cart.update_qty(sid, item_id, qty).await {
+    if let Err(_) = s.cart.update_qty(sid, form.item_id, form.qty).await {
         return SafeResponse::redirect("/cart?error=Actualizare+eșuată#cart-container");
     }
 

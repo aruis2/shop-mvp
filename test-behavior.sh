@@ -183,8 +183,8 @@ fi
 req POST "/cart/add" 302 "2i. Add fără slug → 302 error" "" "$JAR_ANON"
 req POST "/cart/add" 302 "2j. Add slug inexistent → 302 error" \
     "product_slug=nonexistent-slug&qty=1" "$JAR_ANON"
-req POST "/cart/remove" 302 "2k. Remove fără item_id → 302 error" "" "$JAR_ANON"
-req POST "/cart/remove" 302 "2l. Remove UUID invalid → 302 error" \
+req POST "/cart/remove" 400 "2k. Remove fără item_id → 400 error" "" "$JAR_ANON"
+req POST "/cart/remove" 400 "2l. Remove UUID invalid → 400 error" \
     "item_id=not-a-uuid" "$JAR_ANON"
 
 # Try checkout → trebuie redirecționat la login (coș gol)

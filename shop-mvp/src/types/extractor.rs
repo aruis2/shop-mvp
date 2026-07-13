@@ -17,11 +17,11 @@
 use axum::{
     body::Bytes,
     extract::{FromRequest, Request},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 
 use crate::types::parser::{parse_form, FormField};
-use crate::boundary::{SafeResponse, SafeStatus};
+use crate::boundary::SafeResponse;
 
 /// Un formular DEJA validat. Nu poți construi asta fără să treci prin ValidateForm.
 /// Asta e SINGURUL mod prin care handler-ele primesc date de la utilizator.
@@ -29,41 +29,36 @@ use crate::boundary::{SafeResponse, SafeStatus};
 pub struct ValidatedForm<T>(pub T);
 
 /// Orice formular care poate fi validat din body URL-encoded.
+/// `validate` primește cîmpurile parșate + headerele HTTP (pentru redirect-uri).
 pub trait ValidateForm: Sized {
-    /// Validează cîmpurile și returnează formularul SAU un SafeResponse de eroare.
-    fn validate(fields: &[FormField]) -> Result<Self, SafeResponse>;
+    /// Validează cîmpurile și returnează formularul.
+    /// Pentru erori, returnează un SafeResponse (redirect cu mesaj sau bad_request).
+    fn validate(fields: &[FormField]) -> Result<Self, &'static str>;
 }
 
 /// Implementare Axum FromRequest — face validarea AUTOMAT la fiecare request.
+/// Dacă validarea eșuează, returnează SafeResponse::bad_request.
+/// Handlerele care vor redirect în loc de 400 trebuie să facă validarea manual
+/// (vezi cart_add, signup_handler — au nevoie de headere pentru redirect_back).
 impl<T, S> FromRequest<S> for ValidatedForm<T>
 where
     T: ValidateForm,
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, String);
+    type Rejection = SafeResponse;
 
     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
         let body = Bytes::from_request(req, _state).await
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Body error".to_string()))?;
+            .map_err(|_| SafeResponse::bad_request("Body error"))?;
         
         let body_str = String::from_utf8(body.to_vec())
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Body invalid".to_string()))?;
+            .map_err(|_| SafeResponse::bad_request("Body invalid"))?;
         
         let fields = parse_form(&body_str);
         
         match T::validate(&fields) {
             Ok(form) => Ok(ValidatedForm(form)),
-            Err(resp) => {
-                let status = match resp.status {
-                    SafeStatus::BadRequest => StatusCode::BAD_REQUEST,
-                    SafeStatus::NotFound => StatusCode::NOT_FOUND,
-                    SafeStatus::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
-                    SafeStatus::Forbidden => StatusCode::FORBIDDEN,
-                    SafeStatus::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
-                    _ => StatusCode::BAD_REQUEST,
-                };
-                Err((status, resp.body))
-            }
+            Err(msg) => Err(SafeResponse::bad_request(msg)),
         }
     }
 }
