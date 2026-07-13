@@ -11,14 +11,8 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use axum::{
-    response::IntoResponse,
-    routing::{get, post},
-    Router,
-};
 use sqlx::PgPool;
 use tera::Tera;
-use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use rust_marketplace_products::{PgProductRepo, ProductRepo};
@@ -26,12 +20,12 @@ use rust_auth::PgAuthRepo;
 use rust_cart::PgCartRepo;
 use rust_marketplace_orders::PgOrderRepo;
 use rust_payment::{PaymentRepo, StripePayment, MockPayment};
-use rust_url_normalizer::strip_trailing_slash;
 
 mod url_encode;
 
 mod cookie;
 mod debug;
+mod front_controller;
 mod handlers;
 mod trust_boundary;
 mod payment_retry;
@@ -190,92 +184,10 @@ async fn main() -> anyhow::Result<()> {
     // acceseze produse sau plăți — verificat la compilare.
     // ====================================================================
 
-    // 🟢 Auth — doar auth_repo + renderer
-    let auth_routes = Router::new()
-        .route("/login", post(handlers::auth::login_handler))
-        .route("/signup", post(handlers::auth::signup_handler))
-        .with_state(state.clone());
-
-    // 🟢 Produse — doar products_repo + renderer
-    let product_routes = Router::new()
-        .route("/products", get(handlers::products::products_page))
-        .route("/product/{slug}", get(handlers::products::product_detail_page))
-        .route("/search", get(handlers::products::search_page))
-        .with_state(state.clone());
-
-    // 🟡 Coș — cart_repo + products_repo + renderer
-    let cart_routes = Router::new()
-        .route("/cart", get(handlers::cart::cart_page))
-        .route("/cart/add", post(handlers::cart::cart_add))
-        .route("/cart/remove", post(handlers::cart::cart_remove))
-        .route("/cart/update", post(handlers::cart::cart_update))
-        .with_state(state.clone());
-
-    // 🟠 Comenzi + Checkout — orders + cart + payment + auth
-    let order_routes = Router::new()
-        .route("/checkout", get(handlers::orders::checkout_page).post(handlers::orders::checkout_handler))
-        .route("/order/{id}/pay", post(handlers::orders::order_pay))
-        .route("/orders", get(handlers::orders::orders_page))
-        .route("/success", get(handlers::orders::success_page))
-        // 🔒 PSD2/SCA: Stripe webhook pentru confirmare plată asincronă
-        .route("/stripe/webhook", post(handlers::orders::stripe_webhook))
-        .with_state(state.clone());
-
-    // 🔐 Admin — toate capabilitățile (dar tot prin trait-uri)
-    let admin_routes = Router::new()
-        .route("/admin", get(handlers::admin::admin_products_page))
-        .route("/admin/orders", get(handlers::admin::admin_orders_page))
-        .route("/admin/order/{id}/status", post(handlers::admin::admin_order_update_status))
-        .route("/admin/product/new", get(handlers::admin::admin_product_new_page).post(handlers::admin::admin_product_create))
-        .route("/admin/product/{slug}/edit", get(handlers::admin::admin_product_edit_page).post(handlers::admin::admin_product_update))
-        .route("/admin/product/{slug}/delete", post(handlers::admin::admin_product_delete))
-        .route("/admin/logs", get(handlers::admin::admin_logs))
-        .route("/admin/migrate-orders", post(handlers::admin::admin_migrate_orders))
-        .with_state(state.clone());
-
-    // 🏠 Home + health + login/signup pages (au nevoie de ProductState)
-    let page_routes = Router::new()
-        .route("/", get(handlers::products::home_page))
-        // 🔒 GDPR: Ștergere cont + export date + politici
-        .route("/account/delete", post(handlers::auth::delete_account_handler))
-        .route("/account/export", get(handlers::auth::export_data_handler))
-        .route("/privacy", get(handlers::auth::privacy_policy_page))
-        .route("/security", get(handlers::auth::security_policy_page))
-        // 🔒 CIS Control 7: Vulnerability disclosure (security.txt)
-        .route("/.well-known/security.txt", get(security_txt))
-        .route("/logout", get(handlers::auth::logout_handler).post(handlers::auth::logout_handler))
-        .route("/login", get(handlers::auth::login_page))
-        .route("/signup", get(handlers::auth::signup_page))
-        .route("/me", get(handlers::auth::me_handler))
-        .route("/health", get(health_check))
-        .with_state(state.clone());
-
-    // ⚡ Asamblare finală
-    let shop_routes = Router::new()
-        .merge(page_routes)
-        .merge(auth_routes)
-        .merge(product_routes)
-        .merge(cart_routes)
-        .merge(order_routes)
-        .merge(admin_routes);
-
-    let app = Router::new()
-        .merge(shop_routes.clone())
-        .nest("/shop", shop_routes)
-        .nest_service("/static", ServeDir::new("shop-mvp/static"))
-        // 🔐 TrustBoundary — PRIMUL strat: validează ORICE request la graniță
-        // PHILOSOPHY #13: zero intermediari între raw bytes și tipurile noastre
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            trust_boundary::trust_boundary_middleware,
-        ))
-        .layer(axum::middleware::from_fn(csrf_middleware))
-        .layer(axum::middleware::from_fn(session_timeout))
-        .layer(axum::middleware::from_fn(security_headers))
-        .layer(axum::middleware::from_fn(strip_trailing_slash))
-        .layer(axum::middleware::from_fn(request_timing))
-        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max
-        .with_state(state);
+    // � Front Controller: UNICUL punct de intrare — rute definite centralizat
+    // TrustBoundary middleware (CSRF, security headers, path/header/cookie validation)
+    // e deja inclus în build_router()
+    let app = front_controller::build_router(state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".into());
     let addr = format!("0.0.0.0:{port}");
@@ -343,101 +255,6 @@ pub fn get_query_log() -> Vec<String> {
     DB_QUERY_LOG.lock().map(|l| l.clone()).unwrap_or_default()
 }
 
-// ============================================================================
-// Health check — verifică și DB
-// ============================================================================
-
-async fn health_check(
-    axum::extract::State(s): axum::extract::State<crate::state::AppState>,
-) -> axum::response::Response {
-    match sqlx::query("SELECT 1").execute(&s.db).await {
-        Ok(_) => (axum::http::StatusCode::OK, "OK").into_response(),
-        Err(e) => {
-            tracing::error!(target: "health", "DB eșuat: {e}");
-            (axum::http::StatusCode::SERVICE_UNAVAILABLE, format!("DB error: {e}")).into_response()
-        }
-    }
-}
-
-// ============================================================================
-// 🔒 CIS Control 7: Vulnerability Disclosure (RFC 9116)
-// ============================================================================
-
-/// Servește security.txt — politica de divulgare a vulnerabilităților.
-async fn security_txt() -> impl axum::response::IntoResponse {
-    let content = include_str!("../static/.well-known/security.txt");
-    ([
-        (axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8"),
-        (axum::http::header::HeaderName::from_static("access-control-allow-origin"), "*"),
-    ], content)
-}
-
-// ============================================================================
-// 🔒 ASVS L2: Session timeout middleware
-// ============================================================================
-
-/// Verifică dacă sesiunea e expirată (ASVS L2 V3.3.1).
-/// Token-ul JWT are deja `exp` claim — verificarea se face în `verify_token`.
-/// Aici adăugăm un timeout de inactivitate de 30min pentru rute sensibile.
-async fn session_timeout(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> impl axum::response::IntoResponse {
-    let path = req.uri().path().to_string();
-    let is_sensitive = path.starts_with("/checkout")
-        || path.starts_with("/admin")
-        || path.starts_with("/orders");
-    
-    if is_sensitive {
-        if let Some(cookie) = req.headers().get("cookie").and_then(|v| v.to_str().ok()) {
-            let _token = crate::cookie::get_cookie(cookie, "token");
-            // Token-ul e verificat de handler-ele individuale prin inject_user_ctx
-            // Dacă token-ul e expirat, handler-ele redirecționează oricum la login
-            // Acest middleware e un gardian suplimentar
-        }
-    }
-    next.run(req).await
-}
-
-// ============================================================================
-// 🔒 ASVS L2: CSRF Protection — verificare Origin header
-// ============================================================================
-// Pentru request-uri POST, verificăm că header-ul `Origin` sau `Referer`
-// corespunde site-ului nostru.
-//
-// Aceasta e o mitigare CSRF simplă și eficientă — nu necesită token-uri.
-
-/// CSRF middleware: verifică origin la POST-uri
-async fn csrf_middleware(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> impl axum::response::IntoResponse {
-    let method = req.method().clone();
-    let is_post = method == axum::http::Method::POST
-        || method == axum::http::Method::PUT
-        || method == axum::http::Method::DELETE
-        || method == axum::http::Method::PATCH;
-
-    if is_post {
-        let origin = req.headers().get("origin")
-            .and_then(|v| v.to_str().ok());
-        let referer = req.headers().get("referer")
-            .and_then(|v| v.to_str().ok());
-        let site_url = std::env::var("SITE_URL").unwrap_or_default();
-
-        let origin_ok = origin.map_or(false, |o| o.starts_with(&site_url) || o.contains("://localhost"));
-        let referer_ok = referer.map_or(false, |r| r.starts_with(&site_url) || r.contains("://localhost"));
-
-        if !origin_ok && !referer_ok {
-            tracing::warn!(target: "csrf", "CSRF respins: method={} origin={:?} referer={:?}",
-                method, origin, referer);
-            return (axum::http::StatusCode::FORBIDDEN, "CSRF check failed").into_response();
-        }
-    }
-
-    next.run(req).await
-}
-
 // 🔒 ASVS L2: Idempotency — mutată în DB (rust-marketplace-orders),
 //              nu mai e nevoie de cache in-memory.
 // ============================================================================
@@ -501,78 +318,10 @@ const MAX_ITEMS_PER_ORDER: usize = 20;
 const MAX_ORDER_VALUE_BANI: i64 = 10_000_00; // 10,000 lei
 
 // ============================================================================
-// Security headers middleware
+// Middleware legacy — înlocuit de TrustBoundary (trust_boundary.rs)
+// Security headers, CSRF, session timeout, request timing sunt acum în
+// front_controller.rs, gestionate de TrustBoundary middleware.
 // ============================================================================
-
-async fn security_headers(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> impl axum::response::IntoResponse {
-    // Determinăm sensibilitatea pe baza path-ului request-ului (înainte de a consuma req)
-    let is_sensitive = req.uri().path().starts_with("/login")
-        || req.uri().path().starts_with("/signup")
-        || req.uri().path().starts_with("/checkout")
-        || req.uri().path().starts_with("/admin")
-        || req.uri().path().starts_with("/orders")
-        || req.uri().path().starts_with("/me")
-        || req.uri().path().starts_with("/cart");
-
-    let resp = next.run(req).await;
-    let (mut parts, body) = resp.into_parts();
-
-    // 🔒 V9: HSTS — force HTTPS, prevent downgrade attacks (OWASP ASVS V9)
-    parts.headers.insert(
-        axum::http::header::HeaderName::from_static("strict-transport-security"),
-        axum::http::HeaderValue::from_static("max-age=31536000; includeSubDomains"),
-    );
-
-    // 🔒 V8.3: Cache-Control — prevent caching of sensitive pages (OWASP ASVS V8.3)
-    if is_sensitive {
-        parts.headers.insert(
-            axum::http::header::CACHE_CONTROL,
-            axum::http::HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
-        );
-    }
-
-    // 🔒 CSP — restrict resource loading to trusted sources (OWASP ASVS V10)
-    // Zero JS (HN philosophy) → script-src 'self' e suficient.
-    // style-src 'unsafe-inline' e necesar pentru clase CSS inline în Tera.
-    // frame-ancestors 'none' + X-Frame-Options DENY dublează protecția.
-    // upgrade-insecure-requests doar în producție (pe localhost rupe form-action 'self'
-    // pentru că browserul upgradează http:// → https:// și 'self' nu mai corespunde).
-    let csp = match std::env::var("APP_ENV").unwrap_or_default().as_str() {
-        "prod" | "production" => {
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
-        }
-        _ => {
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
-        }
-    };
-    parts.headers.insert(
-        axum::http::header::CONTENT_SECURITY_POLICY,
-        axum::http::HeaderValue::from_static(csp),
-    );
-
-    // 🔒 Anti-clickjacking (OWASP ASVS V4)
-    parts.headers.insert(
-        axum::http::header::HeaderName::from_static("x-frame-options"),
-        axum::http::HeaderValue::from_static("DENY"),
-    );
-
-    // 🔒 Anti-MIME sniffing (OWASP ASVS V8)
-    parts.headers.insert(
-        axum::http::header::HeaderName::from_static("x-content-type-options"),
-        axum::http::HeaderValue::from_static("nosniff"),
-    );
-
-    // 🔒 Referrer policy (OWASP ASVS V9)
-    parts.headers.insert(
-        axum::http::header::HeaderName::from_static("referrer-policy"),
-        axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
-
-    axum::response::Response::from_parts(parts, body)
-}
 
 // ============================================================================
 // Graceful shutdown signal
