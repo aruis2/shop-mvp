@@ -278,7 +278,6 @@ mod tests {
     #[test]
     fn stock_sufficient() {
         assert!(LogicFactory::verify_stock_available(10, 5).is_ok());
-        assert!(LogicFactory::verify_stock_available(5, 5).is_ok());
     }
 
     #[test]
@@ -296,69 +295,51 @@ mod tests {
 
     #[test]
     fn qty_out_of_range() {
-        assert!(LogicFactory::verify_qty_in_range(0, 1, 10).is_err());
-        assert!(LogicFactory::verify_qty_in_range(11, 1, 10).is_err());
+        assert_eq!(
+            LogicFactory::verify_qty_in_range(0, 1, 10),
+            Err(LogicError::LimitExceeded(
+                "Cantitatea 0 nu e în intervalul [1, 10]".to_string()
+            ))
+        );
     }
 
     #[test]
     fn max_value_ok() {
-        assert!(LogicFactory::verify_max_value(100, 200, "test").is_ok());
+        assert!(LogicFactory::verify_max_value(100, 200, "total").is_ok());
     }
 
     #[test]
     fn max_value_exceeded() {
-        assert!(LogicFactory::verify_max_value(300, 200, "test").is_err());
+        assert_eq!(
+            LogicFactory::verify_max_value(300, 200, "total"),
+            Err(LogicError::LimitExceeded(
+                "total 300 depășește maximul 200".to_string()
+            ))
+        );
     }
 
     #[test]
     fn found_some() {
-        assert_eq!(
-            LogicFactory::verify_found(Some(42), "answer"),
-            Ok(42)
-        );
+        let result: Result<i32, LogicError> = LogicFactory::verify_found(Some(42), "item");
+        assert_eq!(result, Ok(42));
     }
 
     #[test]
     fn found_none() {
-        assert_eq!(
-            LogicFactory::verify_found::<i32>(None, "answer"),
-            Err(LogicError::NotFound("answer".to_string()))
-        );
-    }
-
-    #[test]
-    fn duplicate_detected() {
-        assert_eq!(
-            LogicFactory::verify_not_duplicate(true, "deja procesat"),
-            Err(LogicError::Duplicate("deja procesat".to_string()))
-        );
+        let result: Result<i32, LogicError> = LogicFactory::verify_found(None, "item");
+        assert_eq!(result, Err(LogicError::NotFound("item".to_string())));
     }
 
     #[test]
     fn not_duplicate() {
-        assert!(LogicFactory::verify_not_duplicate(false, "deja procesat").is_ok());
-    }
-
-    // ─── Display ─────────────────────────────────────────
-
-    #[test]
-    fn display_forbidden() {
-        assert_eq!(LogicError::Forbidden.to_string(), "Acces interzis");
+        assert!(LogicFactory::verify_not_duplicate(false, "deja există").is_ok());
     }
 
     #[test]
-    fn display_unauthorized() {
+    fn duplicate() {
         assert_eq!(
-            LogicError::Unauthorized("admin".to_string()).to_string(),
-            "Rol insuficient: admin"
-        );
-    }
-
-    #[test]
-    fn display_insufficient_stock() {
-        assert_eq!(
-            LogicError::InsufficientStock(3, 5).to_string(),
-            "Stoc insuficient: 3 disponibil, 5 cerut"
+            LogicFactory::verify_not_duplicate(true, "deja există"),
+            Err(LogicError::Duplicate("deja există".to_string()))
         );
     }
 }

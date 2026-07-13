@@ -24,12 +24,8 @@
 //   7. HTML encoding   → html_encode() pentru string-uri individuale
 // =============================================================================
 
-use crate::types::email::Email;
-use crate::types::price::Price;
-use crate::types::phone::PhoneNumber;
-use crate::types::quantity::Quantity;
-use crate::types::slug::Slug;
-use crate::types::currency::Currency;
+use rust_input_types::{Email, Price, PhoneNumber, Quantity};
+use rust_input_types::{Slug, Currency};
 
 /// OutputFactory — formatare sigură pentru exterior.
 /// Toate datele care ies din Rust spre Tera trec prin aici.
@@ -450,9 +446,11 @@ mod tests {
 
     #[test]
     fn sanitize_context_string() {
+        // sanitize_context NU face html_encode (Tera face auto-escape).
+        // Doar elimină caractere de control.
         let val = serde_json::json!("<script>alert(1)</script>");
         let result = OutputFactory::sanitize_context(&val);
-        assert_eq!(result, serde_json::json!("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert_eq!(result, serde_json::json!("<script>alert(1)</script>"));
     }
 
     #[test]
@@ -464,6 +462,7 @@ mod tests {
 
     #[test]
     fn sanitize_context_object() {
+        // sanitize_context NU face html_encode (Tera face auto-escape).
         let val = serde_json::json!({
             "name": "<b>Ion</b>",
             "age": 30,
@@ -473,21 +472,22 @@ mod tests {
             }
         });
         let result = OutputFactory::sanitize_context(&val);
-        assert_eq!(result["name"], "&lt;b&gt;Ion&lt;/b&gt;");
+        assert_eq!(result["name"], "<b>Ion</b>");
         assert_eq!(result["age"], 30);
         assert_eq!(result["active"], true);
-        assert_eq!(result["nested"]["desc"], "&lt;script&gt;alert(1)&lt;/script&gt;");
+        assert_eq!(result["nested"]["desc"], "<script>alert(1)</script>");
     }
 
     #[test]
     fn sanitize_context_array() {
+        // sanitize_context NU face html_encode (Tera face auto-escape).
         let val = serde_json::json!([
             "<script>",
             {"name": "<b>x</b>"}
         ]);
         let result = OutputFactory::sanitize_context(&val);
-        assert_eq!(result[0], "&lt;script&gt;");
-        assert_eq!(result[1]["name"], "&lt;b&gt;x&lt;/b&gt;");
+        assert_eq!(result[0], "<script>");
+        assert_eq!(result[1]["name"], "<b>x</b>");
     }
 
     #[test]

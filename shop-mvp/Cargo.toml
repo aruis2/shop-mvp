@@ -21,7 +21,6 @@ tera = { version = "2", features = ["glob_fs"] }
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_urlencoded = "0.7"
 
 # Time & UUID
 chrono = { version = "0.4", features = ["serde"] }
@@ -47,7 +46,8 @@ hex = "0.4"
 # ========================================
 # LEGO-uri 🧱
 # ========================================
-rust-marketplace-products = { path = "../libs/rust-marketplace-products" }
+rust-marketplace-products  = { path = "../libs/rust-marketplace-products" }
+rust-marketplace-categories = { path = "../libs/rust-marketplace-categories", features = ["products"] }
 rust-auth                = { path = "../libs/rust-auth" }
 rust-cart                = { path = "../libs/rust-cart" }
 rust-marketplace-orders  = { path = "../libs/rust-marketplace-orders" }
@@ -56,3 +56,6 @@ rust-url-normalizer     = { path = "../libs/rust-url-normalizer" }
 rust-slug                = { path = "../libs/rust-slug" }
 rust-path-prefix         = { path = "../libs/rust-path-prefix" }
 rust-trust-boundary     = { path = "../libs/rust-trust-boundary" }
+rust-ratelimit          = { path = "../libs/rust-ratelimit" }
+rust-logic              = { path = "../libs/rust-logic" }
+rust-input-types        = { path = "../libs/rust-input-types" }

@@ -6,21 +6,16 @@ description = "Authentication: users, password hashing, JWT sessions — standal
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
-tokio = { version = "1.52.3", features = ["full"] }
-chrono = { version = "0.4.45", features = ["serde"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-uuid = { version = "1.23.4", features = ["v4", "serde"] }
-async-trait = "0.1"
-thiserror = "2"
+sqlx.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
 argon2 = "0.5"
 jsonwebtoken = "9"
 rand = "0.8"
 
-# LEGO adapters
-rust-marketplace-listings = { path = "../rust-marketplace-listings", optional = true }
-
-[features]
-default = []
-lego-listings = ["rust-marketplace-listings"]
+# LEGO adapters — (fără rust-marketplace-listings; dependența inversă eliminată)

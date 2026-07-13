@@ -4,7 +4,7 @@
 // GARANTAT: litere mici, cifre, cratime. Fără spații, diacritice, caractere speciale.
 // =============================================================================
 
-use crate::types::error::InputError;
+use crate::error::InputError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slug(String);

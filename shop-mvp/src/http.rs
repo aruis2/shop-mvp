@@ -54,7 +54,7 @@ pub fn redirect_back(headers: &HeaderMap, fallback: &str, error: Option<&str>) -
     let safe_base = OutputFactory::safe_redirect_url(&base, "/")
         .unwrap_or_else(|| fallback.to_string());
     match error {
-        Some(msg) => SafeResponse::redirect(format!("{}?error={}", safe_base, crate::url_encode::url_encode(msg))),
+        Some(msg) => SafeResponse::redirect(format!("{}?error={}", safe_base, rust_url_normalizer::url_encode(msg))),
         None => SafeResponse::redirect(safe_base),
     }
 }

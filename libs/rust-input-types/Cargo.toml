@@ -1,0 +1,12 @@
+[package]
+name = "rust-input-types"
+version = "0.1.0"
+edition.workspace = true
+description = "🏭 Input types: validated newtypes (Email, Price, Slug, Phone, Currency, IDs) with InputFactory — Parse, Don't Validate"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true

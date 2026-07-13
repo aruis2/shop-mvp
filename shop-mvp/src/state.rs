@@ -73,7 +73,6 @@ impl FromRef<AppState> for ProductState {
             auth: state.auth.clone(),
             renderer: state.renderer.clone(),
             site_url: state.site_url.clone(),
-            db: state.db.clone(),
         }
     }
 }
@@ -114,7 +113,6 @@ impl FromRef<AppState> for AdminState {
             renderer: state.renderer.clone(),
             site_url: state.site_url.clone(),
             max_qty: state.max_qty,
-            db: state.db.clone(),
         }
     }
 }
@@ -130,14 +128,13 @@ pub struct AuthState {
     pub site_url: String,
 }
 
-/// 🟢 Produse — poate accesa doar produse, auth (read-only) și render
+/// 🟢 Produse — poate accesa doar produse (prin trait), auth (read-only) și render
 #[derive(Clone)]
 pub struct ProductState {
     pub products: Arc<dyn ProductRepo>,
     pub auth: Arc<dyn AuthRepo>,
     pub renderer: RenderService,
     pub site_url: String,
-    pub db: sqlx::PgPool,
 }
 
 /// 🟡 Coș — are nevoie de cart + products + auth (read-only)
@@ -163,7 +160,7 @@ pub struct OrderState {
 }
 
 /// 🔐 Admin — are nevoie de toate (dar totul prin trait-uri, nu PgPool direct)
-/// TODO: `db` (PgPool) e o gaură de securitate — mută migrate_orders în OrderRepo
+/// ✅ `db` eliminat — migrate_orders mutat în OrderRepo
 #[derive(Clone)]
 pub struct AdminState {
     pub products: Arc<dyn ProductRepo>,
@@ -173,5 +170,4 @@ pub struct AdminState {
     pub renderer: RenderService,
     pub site_url: String,
     pub max_qty: i32,
-    pub db: PgPool,
 }

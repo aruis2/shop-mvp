@@ -12,7 +12,6 @@ use crate::state::CartState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
-use crate::url_encode::url_encode;
 use crate::debug_warn;
 
 fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> SafeResponse {

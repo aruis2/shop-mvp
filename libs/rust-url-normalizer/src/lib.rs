@@ -4,6 +4,11 @@
 //! - Elimină slash-ul final (`/produse/` → `/produse`) cu redirect 301
 //!
 //! Se aplică ca layer global pe orice Router.
+//!
+//! Include și utilitarul `url_encode` pentru encoding query params.
+
+pub mod encode;
+pub use encode::url_encode;
 
 use axum::{
     extract::Request,

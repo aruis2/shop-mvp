@@ -10,7 +10,7 @@
 // =============================================================================
 
 use serde::Serialize;
-use crate::types::error::InputError;
+use crate::error::InputError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Email(String);

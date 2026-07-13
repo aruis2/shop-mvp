@@ -13,7 +13,7 @@ use crate::state::OrderState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
-use crate::url_encode::url_encode;
+use rust_url_normalizer::url_encode;
 use crate::{debug_warn, debug_log};
 
 /// Extrage token-ul JWT din: Authorization header > cookie > query param

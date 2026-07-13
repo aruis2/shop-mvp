@@ -9,7 +9,7 @@
 // GARANTAT: strict pozitiv, maximum 10.000 lei (1.000.000 bani), overflow detectat
 // =============================================================================
 
-use crate::types::error::InputError;
+use crate::error::InputError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Price(i32);

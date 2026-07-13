@@ -15,6 +15,7 @@ use crate::state::ProductState;
 use crate::render::{RenderService, DetectBasePath};
 use crate::handlers::auth;
 use crate::boundary::*;
+use rust_marketplace_products::ProductRepo;
 
 pub const PRODUCTS_PER_PAGE: i64 = 24;
 
@@ -100,13 +101,11 @@ pub struct SearchQuery {
     pub page: Option<i64>,
 }
 
-async fn fetch_categories(db: &sqlx::PgPool) -> Vec<serde_json::Value> {
-    sqlx::query_as::<_, (i32, String, String)>("SELECT id, name, slug FROM categories ORDER BY name")
-        .fetch_all(db)
-        .await
+async fn fetch_categories(products: &dyn ProductRepo) -> Vec<serde_json::Value> {
+    products.get_categories().await
         .unwrap_or_default()
         .iter()
-        .map(|(id, name, slug)| serde_json::json!({"id": id, "name": name, "slug": slug}))
+        .map(|c| serde_json::json!({"id": c.id, "name": c.name, "slug": c.slug}))
         .collect()
 }
 
@@ -212,7 +211,7 @@ pub async fn products_page(
     }).collect();
 
     let total_pages = ((total as f64) / PRODUCTS_PER_PAGE as f64).ceil() as i64;
-    let categories = fetch_categories(&s.db).await;
+    let categories = fetch_categories(&*s.products).await;
 
     let mut data = serde_json::json!({
         "title": "📦 Produse",

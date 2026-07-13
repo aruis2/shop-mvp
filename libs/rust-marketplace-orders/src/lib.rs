@@ -84,6 +84,10 @@ pub trait OrderRepo: Send + Sync {
 
     /// 🔒 Idempotency: stochează rezultatul pentru o cheie (INSERT ON CONFLICT DO NOTHING)
     async fn store_idempotency(&self, key: &str, result: &str) -> Result<(), OrderError>;
+
+    /// 🔐 Migrează comenzile anonime (user_id IS NULL) la un utilizator autentificat.
+    /// Folosit de admin_migrate_orders pentru a asocia comenzi anterioare.
+    async fn migrate_user_orders(&self, user_id: Uuid) -> Result<u64, OrderError>;
 }
 
 // ============================================================================

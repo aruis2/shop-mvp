@@ -20,9 +20,9 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::types::parser::{parse_form, FormField};
+use rust_input_types::{parse_form, FormField};
 use crate::boundary::SafeResponse;
-use crate::url_encode::url_encode;
+use rust_url_normalizer::url_encode;
 
 /// Creează un redirect back la referer cu mesaj de eroare (PRG pattern).
 pub fn redirect_back(headers: &HeaderMap, fallback: &str, error: &str) -> SafeResponse {

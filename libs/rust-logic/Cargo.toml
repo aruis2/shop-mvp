@@ -1,0 +1,9 @@
+[package]
+name = "rust-logic"
+version = "0.1.0"
+edition.workspace = true
+description = "🏭 LogicFactory — business rule validation (IDOR, auth, state machine) — zero external deps"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tracing.workspace = true

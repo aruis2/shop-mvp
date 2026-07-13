@@ -350,4 +350,12 @@ impl OrderRepo for PgOrderRepo {
         .await?;
         Ok(())
     }
+
+    async fn migrate_user_orders(&self, user_id: Uuid) -> Result<u64, OrderError> {
+        let updated = sqlx::query("UPDATE orders SET user_id = $1 WHERE user_id IS NULL")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(updated.rows_affected())
+    }
 }

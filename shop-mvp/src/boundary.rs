@@ -21,10 +21,10 @@
 // Re-exporturi din types (Input, Output, Logic, Parser)
 pub use crate::types::InputFactory;
 pub use crate::types::QueryValidator;
-pub use crate::types::error::InputError;
-pub use crate::types::logic::{LogicFactory, LogicError};
+pub use crate::types::InputError;
+pub use rust_logic::{LogicFactory, LogicError};
 pub use crate::types::output::OutputFactory;
-pub use crate::types::parser::{parse_form, get_field, parse_any_into, FormField};
+pub use crate::types::{parse_form, get_field, parse_any_into, FormField};
 
 // Re-exporturi HTTP helpers
 pub use crate::http::{

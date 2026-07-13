@@ -15,8 +15,9 @@ use crate::state::AdminState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
-use crate::types::parser::{parse_any_into, get_field};
-use crate::url_encode::url_encode;
+use crate::types::{parse_any_into, get_field};
+use rust_url_normalizer::url_encode;
+use rust_slug::generate_slug;
 use crate::debug_warn;
 
 // ─── Helper ────────────────────────────────────────────────────
@@ -166,7 +167,7 @@ impl ValidateForm for AdminProductForm {
         ).map_err(|_| SafeResponse::bad_request("Nume invalid"))?;
         let slug_raw = get_field(fields, "slug").unwrap_or("");
         let slug = if slug_raw.is_empty() {
-            InputFactory::parse_slug(&name.as_str().to_lowercase().replace(' ', "-"))
+            InputFactory::parse_slug(&generate_slug(name.as_str()))
         } else {
             InputFactory::parse_slug(slug_raw)
         }.map_err(|_| SafeResponse::bad_request("Slug invalid"))?;
@@ -448,15 +449,11 @@ pub async fn admin_migrate_orders(
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
     let user = verify_admin(&headers, &q, &*s.auth).await?;
 
-    // Acces explicit la DB — singurul loc unde încălcăm regula
-    // TODO: mută în OrderRepo ca metodă migrate_user_orders()
-    let updated = sqlx::query("UPDATE orders SET user_id = $1 WHERE user_id IS NULL")
-        .bind(user.id)
-        .execute(&s.db)
-        .await
+    // 🔒 Acces prin OrderRepo, nu direct la DB — capability-based
+    let migrated = s.orders.migrate_user_orders(user.id).await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(serde_json::json!({ "migrated": updated.rows_affected() })))
+    Ok(Json(serde_json::json!({ "migrated": migrated })))
 }
 
 // ─── Admin Logs ────────────────────────────────────────────────
@@ -472,13 +469,13 @@ pub async fn admin_logs(
         Err(resp) => return resp,
     };
 
-    let log = crate::get_query_log();
+    let log = crate::startup::get_query_log();
     let lines: Vec<String> = log.iter().rev().take(100).cloned().collect();
 
     let data = serde_json::json!({
         "title": "Admin — Loguri DB",
         "lines": lines,
-        "total": crate::get_query_count(),
+        "total": crate::startup::get_query_count(),
     });
     render_safe_json(&s.renderer, "admin/admin_logs.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }

@@ -11,6 +11,16 @@ members = [
     "libs/rust-slug",
     "libs/rust-trust-boundary",
     "libs/rust-url-normalizer",
+    "libs/rust-ratelimit",
+    "libs/cache",
+    "libs/rust-knowledge-base",
+    "libs/rust-marketplace-categories",
+    "libs/rust-marketplace-listings",
+    "libs/rust-wallet",
+    "libs/storage",
+    "libs/u32-i32-converter",
+    "libs/rust-logic",
+    "libs/rust-input-types",
 ]
 
 [workspace.package]
@@ -24,6 +34,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 tracing = "0.1"
+serde_json = "1.0"
 anyhow = "1.0"
 async-trait = "0.1"
 thiserror = "2"

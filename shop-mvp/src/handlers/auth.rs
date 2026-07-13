@@ -13,14 +13,14 @@ use crate::state::AuthState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
-use crate::types::parser::{parse_any_into, get_field};
-use crate::url_encode::url_encode;
+use crate::types::{parse_any_into, get_field};
+use rust_url_normalizer::url_encode;
 use crate::{debug_warn, debug_log};
 
 /// Rate limiter pentru login/signup: 5 requesturi pe minut per IP
-fn rate_limiter() -> &'static crate::ratelimit::RateLimiter {
-    static RL: OnceLock<crate::ratelimit::RateLimiter> = OnceLock::new();
-    RL.get_or_init(|| crate::ratelimit::RateLimiter::new(10, 60))
+fn rate_limiter() -> &'static rust_ratelimit::RateLimiter {
+    static RL: OnceLock<rust_ratelimit::RateLimiter> = OnceLock::new();
+    RL.get_or_init(|| rust_ratelimit::RateLimiter::new(10, 60))
 }
 
 
@@ -342,7 +342,7 @@ pub async fn login_handler(
     }
     
     // 🔒 ASVS L2: Account lockout — verifică dacă emailul de la acest IP e blocat
-    if let Err(msg) = crate::check_lockout(&ip, &form.email) {
+    if let Err(msg) = crate::startup::check_lockout(&ip, &form.email) {
         debug_warn!(target: "auth::lockout", "Cont blocat: {} de la IP={}", form.email, ip);
         let dest = format!("{}/login?error={}", bp, url_encode(msg));
         return safe_redirect(&dest);
@@ -352,12 +352,12 @@ pub async fn login_handler(
     match auth_login(&s, &form, referer).await {
         Ok((r, redirect)) => {
             // Login reușit: resetează lockout per IP:email
-            crate::clear_lockout(&ip, &form.email);
+            crate::startup::clear_lockout(&ip, &form.email);
             auth_response(Ok((r, redirect)), &bp)
         }
         Err(e) => {
             // Login eșuat: înregistrează încercarea per IP:email
-            crate::record_failed_attempt(&ip, &form.email);
+            crate::startup::record_failed_attempt(&ip, &form.email);
             debug_warn!(target: "auth::login", "login eșuat: {} redirect={}", e, form.redirect);
             let err_enc = url_encode(&e);
             let dest = if form.redirect.is_empty() {

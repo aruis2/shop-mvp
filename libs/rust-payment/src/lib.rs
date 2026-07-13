@@ -10,10 +10,12 @@
 mod models;
 mod stripe;
 mod mock;
+pub mod retry;
 
 pub use models::{CheckoutResponse, CreateCheckoutRequest};
 pub use stripe::StripePayment;
 pub use mock::MockPayment;
+pub use retry::RetryPayment;
 
 use async_trait::async_trait;
 use thiserror::Error;
