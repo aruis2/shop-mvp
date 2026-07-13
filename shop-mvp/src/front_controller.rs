@@ -198,15 +198,52 @@ pub async fn security_headers_middleware(
         || req.uri().path().starts_with("/me")
         || req.uri().path().starts_with("/cart");
 
-    let mut resp = next.run(req).await;
-    let headers = resp.headers_mut();
+    let resp = next.run(req).await;
+    let (mut parts, body) = resp.into_parts();
 
-    headers.insert(
+    // ─── SANITIZARE BODY la granița de ieșire ─────────────────
+    // V6: colectăm body-ul, îl sanitizăm cu OutputFactory, și-l punem înapoi.
+    let body_bytes = match axum::body::to_bytes(body, 2 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => {
+            tracing::error!(target: "output", "Body prea mare la ieșire");
+            return Response::from_parts(parts, Body::from(""));
+        }
+    };
+
+    let content_type = parts
+        .headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    let sanitized_body: Body = if content_type.contains("text/html") || content_type.contains("text/plain") {
+        // Sanitizare cu OutputFactory pentru text (previne XSS)
+        let text = String::from_utf8_lossy(&body_bytes);
+        let safe = crate::types::output::OutputFactory::text_html(&text);
+        Body::from(safe.into_bytes())
+    } else if content_type.contains("application/json") {
+        // JSON: verificăm că e valid
+        let text = String::from_utf8_lossy(&body_bytes);
+        if serde_json::from_str::<serde_json::Value>(&text).is_err() {
+            tracing::warn!(target: "output", "JSON invalid la ieșire");
+            Body::from("{\"error\":\"internal error\"}")
+        } else {
+            Body::from(body_bytes.to_vec())
+        }
+    } else {
+        // Alte tipuri (CSS, imagini, etc.) — nemodificate
+        Body::from(body_bytes.to_vec())
+    };
+
+    // ─── HEADERE DE SECURITATE ───────────────────────────────
+    parts.headers.insert(
         axum::http::header::HeaderName::from_static("strict-transport-security"),
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
     if is_sensitive {
-        headers.insert(
+        parts.headers.insert(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
         );
@@ -219,20 +256,21 @@ pub async fn security_headers_middleware(
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
         }
     };
-    headers.insert(axum::http::header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
-    headers.insert(
+    parts.headers.insert(axum::http::header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
+    parts.headers.insert(
         axum::http::header::HeaderName::from_static("x-frame-options"),
         HeaderValue::from_static("DENY"),
     );
-    headers.insert(
+    parts.headers.insert(
         axum::http::header::HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(
+    parts.headers.insert(
         axum::http::header::HeaderName::from_static("referrer-policy"),
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
-    resp
+
+    Response::from_parts(parts, sanitized_body)
 }
 
 // ============================================================================
