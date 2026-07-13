@@ -117,6 +117,68 @@ impl TrustBoundary {
         Ok(safe)
     }
 
+    /// Parsează componente individuale (method, path, headers, body).
+    /// Folosit de Front Controller unde body-ul e extras manual.
+    pub fn parse_parts(
+        method: &http::Method,
+        uri: &http::Uri,
+        headers: &http::HeaderMap,
+        body_bytes: &[u8],
+    ) -> Result<SafeRequest, BoundaryError> {
+        // 1. Metoda
+        let safe_method = SafeMethod::from_method(method);
+
+        // 2. Path
+        let path = SafePath::parse(uri.path())?;
+
+        // 3. Query string
+        let query_string = uri.query().map(|q| q.to_string());
+
+        // 4. Headere
+        let safe_headers = SafeHeaders::parse(headers)?;
+
+        // 5. Cookie-uri
+        let cookie_header = safe_headers.get("cookie");
+        let cookies = SafeCookies::parse_from_header(cookie_header)?;
+
+        // 6. Body
+        let content_type = safe_headers.content_type();
+        let body = SafeBody::parse(content_type, body_bytes)?;
+
+        // 7. Client IP
+        let client_ip = safe_headers
+            .client_ip()
+            .unwrap_or("unknown")
+            .to_string();
+
+        let request_id = SafeRequest::generate_request_id();
+
+        Ok(SafeRequest {
+            method: safe_method,
+            path,
+            query_string,
+            headers: safe_headers,
+            cookies,
+            body,
+            client_ip,
+            request_id,
+            site_url: String::new(),
+        })
+    }
+
+    /// Parsează componente individuale + site_url.
+    pub fn parse_parts_with_config(
+        method: &http::Method,
+        uri: &http::Uri,
+        headers: &http::HeaderMap,
+        body_bytes: &[u8],
+        site_url: &str,
+    ) -> Result<SafeRequest, BoundaryError> {
+        let mut safe = Self::parse_parts(method, uri, headers, body_bytes)?;
+        safe.site_url = site_url.to_string();
+        Ok(safe)
+    }
+
     /// Creează un răspuns 400 cu mesaj de eroare pentru un BoundaryError.
     pub fn error_response(err: &BoundaryError) -> SafeResponse {
         match err {

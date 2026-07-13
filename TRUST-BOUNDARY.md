@@ -1,8 +1,11 @@
-# 🔐 Trust Boundary — Granița de încredere a aplicației
+# 🔐 Trust Boundary V2 — Granița de încredere a aplicației
 
 > Ce intră, ce iese, și în ce avem încredere.
-> Arhitectura cu 3 fabrici + query validator + LEGO modules + capabilities.
-> Actualizat: 2026-07-11
+> Arhitectura cu 3 fabrici + TrustBoundary (crate) + LEGO modules + capabilities.
+> Actualizat: 2026-07-13
+>
+> **V2:** TrustBoundary middleware + `parse_parts()` pentru body.
+> Următorul pas: Front Controller (o singură rută).
 
 ---
 
@@ -21,26 +24,24 @@
                          ─── totul e neverificat, periculos ───
                                        │
                      ╔═════════════════╧══════════════════╗
-                     ║        STRAJA 1: INPUT FACTORY      ║
-                     ║  (ce intră — validare tip + format) ║
+                     ║   TRUST BOUNDARY (crate V2)        ║
+                     ║   rust-trust-boundary 0.2.0         ║
                      ╚═════════════════╤══════════════════╝
                                        │
               ┌──────────────────────┼──────────────────────┐
               │                       │                       │
-         parser.rs               InputFactory            QueryValidator
-         parse_form()            parse_email()           page()
-         get_field()             parse_price()           uuid()
-         parse_any_into()        parse_slug()            token()
-                                 parse_qty()             session_id()
-                                 parse_phone()
-                                 parse_name()
-                                 parse_address()
-                                 parse_brand()
-                                 parse_search()
-                                 parse_session_id()
-                                 etc. (17 metode)
+        TrustBoundary::           SafePath               SafeHeaders
+        parse_parts()            (fără traversal)        (fără injection)
+        (method, uri,                                     SafeCookies
+         headers,                SafeBody                (CSRF, token,
+         body_bytes)             (parsat, 2MB max)        session_id)
               │                       │                       │
               └──────────────────────┼──────────────────────┘
+                                       │
+                     ╔═════════════════╧══════════════════╗
+                     ║       STRAJA 1: INPUT FACTORY       ║
+                     ║  (validare tip + format — body)     ║
+                     ╚═════════════════╤══════════════════╝
                                        │
                      ╔═════════════════╧══════════════════╗
                      ║       STRAJA 2: LOGIC FACTORY       ║
@@ -281,4 +282,64 @@ WARN  ratelimit: Rate limit depășit pentru 192.168.1.4
 WARN  auth::ratelimit: Rate limit signup de la IP=...
 WARN  cart::add: InputFactory: InvalidSlug("...")
 ERROR orders::stripe: Stripe checkout eșuat: ...
+```
+
+---
+
+## V2 — TrustBoundary crate (rust-trust-boundary 0.2.0)
+
+> Adăugat 2026-07-13: strat suplimentar la graniță, ca middleware.
+
+### Ce s-a schimbat
+
+TrustBoundary e un crate **independent** care rulează ca PRIMUL middleware
+înaintea oricărui handler. Validează:
+- **SafePath** — path traversal, slash-uri duble, caractere de control
+- **SafeHeaders** — header injection (\r\n), lungime maximă, CSRF verification (Origin/Referer)
+- **SafeCookies** — token, session_id, csrf_token cu validare
+- **SafeBody** — parsat după Content-Type, limită 2MB, UTF-8 valid
+
+### Arhitectura V2
+
+```
+Browser / curl
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  TrustBoundary MIDDLEWARE            │  ← PRIMUL strat
+│                                      │
+│  SafePath → path traversal? → 400   │
+│  SafeHeaders → injection? → 400     │
+│  SafeCookies → valori valide? → 400 │
+│  CSRF verification → fals? → 403    │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│  Handlere existente (Axum routing)   │
+│  + InputFactory (body, query)        │
+│  + LogicFactory (business rules)     │
+│  + OutputFactory (sanitizare)        │
+└──────────────────────────────────────┘
+```
+
+### Ce oferă V2
+
+| Garanție | Status |
+|----------|--------|
+| Path traversal blocat | ✅ SafePath |
+| Header injection blocat | ✅ SafeHeaders |
+| Cookie-uri validate | ✅ SafeCookies |
+| CSRF verification | ✅ Încorporat |
+| Body validat la graniță | ✅ SafeBody (`parse_parts`) |
+| Un singur punct de intrare | ⏳ Front Controller |
+| 54 de teste | ✅ Toate verzi |
+
+### V3 — Front Controller (planificat)
+
+Înlocuirea rutelor multiple Axum cu UN singur handler `/*` care:
+1. Extrage body-ul ca bytes
+2. Trimite la `TrustBoundary::parse_parts()`
+3. Face routing intern pe `safe.path`
+4. Toate handlerele returnează `SafeResponse` (headere de securitate automate)
 ```

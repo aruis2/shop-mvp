@@ -30,6 +30,19 @@ pub enum SafeMethod {
 }
 
 impl SafeMethod {
+    /// Returnează metoda ca string ("GET", "POST"...).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SafeMethod::Get => "GET",
+            SafeMethod::Post => "POST",
+            SafeMethod::Put => "PUT",
+            SafeMethod::Delete => "DELETE",
+            SafeMethod::Patch => "PATCH",
+            SafeMethod::Head => "HEAD",
+            SafeMethod::Options => "OPTIONS",
+        }
+    }
+
     /// Converteste din http::Method.
     pub fn from_method(m: &http::Method) -> Self {
         match m.as_str() {
@@ -111,6 +124,11 @@ impl SafeRequest {
             .unwrap_or_default()
             .as_nanos();
         format!("req_{:x}", now)
+    }
+
+    /// Returnează metoda ca string.
+    pub fn method_str(&self) -> &'static str {
+        self.method.as_str()
     }
 
     /// Returnează path-ul ca string.

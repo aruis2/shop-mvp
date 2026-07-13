@@ -1,6 +1,6 @@
 [package]
 name = "rust-trust-boundary"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "TrustBoundary — UNICA graniță dintre aplicație și lumea exterioară. Tot inputul e validat, tot outputul e sanitizat. Parse, don't validate."
 license = "MIT OR Apache-2.0"
