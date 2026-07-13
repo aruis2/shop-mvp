@@ -15,8 +15,9 @@
 // =============================================================================
 
 use axum::{
+    http::HeaderValue,
     middleware,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -26,6 +27,74 @@ use tower_http::services::ServeDir;
 use crate::handlers::{admin, auth, cart, orders, products};
 use crate::state::AppState;
 use crate::trust_boundary;
+
+/// Adaugă headere de securitate AUTOMAT la ORICE răspuns.
+///
+/// Aceasta e GRANIȚA DE IEȘIRE — tot ce iese din aplicație trece pe aici.
+/// Handler-ele nu trebuie să-și facă griji pentru securitatea outputului.
+pub async fn security_headers_middleware(
+    req: axum::extract::Request,
+    next: middleware::Next,
+) -> Response {
+    let is_sensitive = req.uri().path().starts_with("/login")
+        || req.uri().path().starts_with("/signup")
+        || req.uri().path().starts_with("/checkout")
+        || req.uri().path().starts_with("/admin")
+        || req.uri().path().starts_with("/orders")
+        || req.uri().path().starts_with("/me")
+        || req.uri().path().starts_with("/cart");
+
+    let mut resp = next.run(req).await;
+    let headers = resp.headers_mut();
+
+    // HSTS — force HTTPS (OWASP ASVS V9)
+    headers.insert(
+        axum::http::header::HeaderName::from_static("strict-transport-security"),
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+
+    // Cache-Control — prevent caching on sensitive pages (OWASP ASVS V8.3)
+    if is_sensitive {
+        headers.insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
+        );
+    }
+
+    // CSP — Content Security Policy (OWASP ASVS V10, HN Philosophy: zero JS)
+    let csp = match std::env::var("APP_ENV").unwrap_or_default().as_str() {
+        "prod" | "production" => {
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
+        }
+        _ => {
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://checkout.stripe.com; base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
+        }
+    };
+    headers.insert(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(csp),
+    );
+
+    // X-Frame-Options — anti-clickjacking (OWASP ASVS V4)
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+
+    // X-Content-Type-Options — anti-MIME sniffing (OWASP ASVS V8)
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+
+    // Referrer-Policy (OWASP ASVS V9)
+    headers.insert(
+        axum::http::header::HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    resp
+}
 
 /// Construiește UNICA rută a aplicației.
 ///
@@ -87,7 +156,10 @@ pub fn build_router(state: AppState) -> Router {
             state.clone(),
             trust_boundary::trust_boundary_middleware,
         ))
-        // 🔗 URL normalization — trailing slash redirect 301
+        // � Security headers — aplicate AUTOMAT la ORICE răspuns
+        // Aceasta e GRANIȚA DE IEȘIRE: CSP, HSTS, XFO, CTO
+        .layer(middleware::from_fn(security_headers_middleware))
+        // �🔗 URL normalization — trailing slash redirect 301
         .layer(middleware::from_fn(strip_trailing_slash))
         // 📦 Body size limit
         .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))

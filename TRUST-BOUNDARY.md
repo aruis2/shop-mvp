@@ -335,11 +335,27 @@ Browser / curl
 | Un singur punct de intrare | ⏳ Front Controller |
 | 54 de teste | ✅ Toate verzi |
 
-### V3 — Front Controller (planificat)
+### V4 — Security Headers Middleware (output automat)
 
-Înlocuirea rutelor multiple Axum cu UN singur handler `/*` care:
-1. Extrage body-ul ca bytes
-2. Trimite la `TrustBoundary::parse_parts()`
-3. Face routing intern pe `safe.path`
-4. Toate handlerele returnează `SafeResponse` (headere de securitate automate)
+Adăugat 2026-07-13: middleware care adaugă CSP, HSTS, XFO, CTO la ORICE răspuns.
+Toate handlerele beneficiază automat de headere de securitate la ieșire.
+
+| Garanție | Status |
+|----------|--------|
+| CSP la orice răspuns | ✅ Automat |
+| HSTS la orice răspuns | ✅ Automat |
+| X-Frame-Options | ✅ Automat |
+| Cache-Control (rute sensibile) | ✅ Automat |
+| Următorul pas: SafeResponse în handlere | ⏳ V5 |
+
+### V3 — Front Controller
+
+Rute centralizate în `front_controller.rs`, în loc de 6 sub-rutere împrăștiate.
+Middleware vechi (csrf, security_headers, session_timeout, request_timing) → TrustBoundary.
+
+| Garanție | Status |
+|----------|--------|
+| Rute centralizate | ✅ front_controller.rs |
+| TrustBoundary middleware | ✅ V2 |
+| 0 warnings, 0 funcții moarte | ✅ |
 ```
