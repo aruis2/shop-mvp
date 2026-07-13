@@ -153,11 +153,29 @@ pub async fn cart_page(
 
 // ─── Add to cart ────────────────────────────────────────
 
+pub struct CartAddForm {
+    pub product_slug: String,
+    pub qty: i32,
+}
+
+impl ValidateForm for CartAddForm {
+    fn validate(fields: &[FormField], _headers: &HeaderMap) -> Result<Self, SafeResponse> {
+        let slug = InputFactory::parse_slug(
+            get_field(fields, "product_slug").map_err(|_| SafeResponse::bad_request("Date invalide"))?
+        ).map_err(|_| SafeResponse::bad_request("Slug invalid"))?;
+        let qty_str = get_field(fields, "qty").unwrap_or("1");
+        let qty_val: i32 = qty_str.parse().unwrap_or(1);
+        let qty = InputFactory::parse_qty(qty_val)
+            .map_err(|_| SafeResponse::bad_request("Cantitate invalidă"))?;
+        Ok(CartAddForm { product_slug: slug.as_str().to_string(), qty: qty.get() as i32 })
+    }
+}
+
 pub async fn cart_add(
     State(s): State<CartState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-    body: String,
+    ValidatedForm(form): ValidatedForm<CartAddForm>,
 ) -> SafeResponse {
     let sid = headers.get("cookie")
         .and_then(|v| v.to_str().ok())
@@ -165,25 +183,7 @@ pub async fn cart_add(
         .map(|s| s.to_string())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    // 🏭 InputFactory: parsează și validează chiar la graniță
-    let (slug_str, qty) = match parse_any_into(&body, |fields| {
-        let slug = InputFactory::parse_slug(get_field(fields, "product_slug")?)?;
-        let qty_str = get_field(fields, "qty").unwrap_or("1");
-        let qty_val: i32 = qty_str.parse().unwrap_or(1);
-        let qty = InputFactory::parse_qty(qty_val)?;
-        Ok::<(String, i32), InputError>((slug.as_str().to_string(), qty.get() as i32))
-    }) {
-        Ok(v) => v,
-        Err(InputError::MissingField(_)) | Err(InputError::InvalidSlug(_)) => {
-            return redirect_back(&headers, "/products", Some("Date invalide"));
-        },
-        Err(e) => {
-            debug_warn!(target: "cart::add", "InputFactory: {}", e);
-            return redirect_back(&headers, "/products", Some("Date invalide"));
-        },
-    };
-
-    let product = match s.products.get_by_slug(&slug_str).await {
+    let product = match s.products.get_by_slug(&form.product_slug).await {
         Ok(Some(p)) => p,
         _ => return redirect_back(&headers, "/products", Some("Produs negăsit")),
     };
@@ -194,20 +194,20 @@ pub async fn cart_add(
     };
 
     // 🏭 LogicFactory: validează cantitatea (deja validată de InputFactory, dublă verificare)
-    if let Err(_) = LogicFactory::verify_qty_in_range(qty, 1, s.max_qty) {
+    if let Err(_) = LogicFactory::verify_qty_in_range(form.qty, 1, s.max_qty) {
         return redirect_back(&headers, "/products", Some("Cantitate invalidă"));
     }
 
     // 🏭 LogicFactory: verifică stoc
-    if let Err(_) = LogicFactory::verify_stock_available(product.stock_count, qty) {
+    if let Err(_) = LogicFactory::verify_stock_available(product.stock_count, form.qty) {
         return redirect_back(&headers, "/products", Some("Stoc insuficient"));
     }
 
     let req = rust_cart::AddCartItemRequest {
-        product_slug: slug_str,
+        product_slug: form.product_slug,
         product_name: product.name,
         price_bani,
-        qty,
+        qty: form.qty,
     };
 
     // 🔑 Dacă utilizatorul e autentificat, legăm itemul de user_id

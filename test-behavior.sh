@@ -180,7 +180,7 @@ else
 fi
 
 # Cazuri de eroare la adăugare
-req POST "/cart/add" 302 "2i. Add fără slug → 302 error" "" "$JAR_ANON"
+req POST "/cart/add" 400 "2i. Add fără slug → 400 error" "" "$JAR_ANON"
 req POST "/cart/add" 302 "2j. Add slug inexistent → 302 error" \
     "product_slug=nonexistent-slug&qty=1" "$JAR_ANON"
 req POST "/cart/remove" 400 "2k. Remove fără item_id → 400 error" "" "$JAR_ANON"
@@ -244,9 +244,9 @@ for _t in "3m. Login email greșit" "nonexistent-${NOW}@test.com" \
 done
 req POST "/signup" 302 "3m. Signup email duplicat → 302" \
     "email=test@test.com&password=Parola123&name=Test" "$JAR_ANON"
-req POST "/signup" 302 "3n. Signup parolă scurtă → 302" \
+req POST "/signup" 400 "3n. Signup parolă scurtă → 400" \
     "email=nou@test.com&password=Ab&name=X" "$JAR_ANON"
-req POST "/signup" 302 "3o. Signup body gol → 302" "" "$JAR_ANON"
+req POST "/signup" 400 "3o. Signup body gol → 400" "" "$JAR_ANON"
 
 # ═══════════════════════════════════════════════════════════
 # 📖 SCENARIU 4: COȘ + CHECKOUT + PLATĂ (autentificat)

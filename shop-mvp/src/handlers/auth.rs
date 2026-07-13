@@ -120,47 +120,55 @@ pub struct LogoutQuery {
     pub redirect: Option<String>,
 }
 
-async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
-    // 🏭 InputFactory: validează email + password + name
-    let (email_str, password, user_name) = parse_body_and_validate(body, |fields| {
-        let email = InputFactory::parse_email(get_field(fields, "email")?)?;
-        let password = get_field(fields, "password")?;
-        // 🏭 InputFactory: numele e opțional, dacă e prezent trece prin InputFactory
+// =============================================================================
+// 📋 SignupForm — validat AUTOMAT de ValidatedForm (V8)
+// =============================================================================
+
+pub struct SignupForm {
+    pub email: String,
+    pub password: String,
+    pub name: Option<String>,
+    pub redirect: String,
+}
+
+impl ValidateForm for SignupForm {
+    fn validate(fields: &[FormField], _headers: &HeaderMap) -> Result<Self, SafeResponse> {
+        let email = InputFactory::parse_email(
+            get_field(fields, "email").map_err(|_| SafeResponse::bad_request("Email lipsă"))?
+        ).map_err(|e| SafeResponse::bad_request(e.to_string()))?;
+
+        let password = get_field(fields, "password")
+            .map_err(|_| SafeResponse::bad_request("Parola lipsește"))?
+            .to_string();
+        if password.len() < 8 { return Err(SafeResponse::bad_request("Parolă prea scurtă (min 8)")); }
+        if password.len() > 128 { return Err(SafeResponse::bad_request("Parolă prea lungă (max 128)")); }
+        if !password.chars().any(|c| c.is_uppercase()) { return Err(SafeResponse::bad_request("Parola trebuie să conțină o literă mare")); }
+        if !password.chars().any(|c| c.is_lowercase()) { return Err(SafeResponse::bad_request("Parola trebuie să conțină o literă mică")); }
+        if !password.chars().any(|c| c.is_ascii_digit()) { return Err(SafeResponse::bad_request("Parola trebuie să conțină o cifră")); }
+
         let name = match get_field(fields, "name") {
             Ok(s) if !s.trim().is_empty() => {
-                Some(InputFactory::parse_name(s)?.as_str().to_string())
+                Some(InputFactory::parse_name(s)
+                    .map_err(|e| SafeResponse::bad_request(e.to_string()))?
+                    .as_str().to_string())
             }
             _ => None,
         };
-        // 🔒 InputFactory: validare parolă (OWASP ASVS V2.1)
-        if password.len() < 8 {
-            return Err(InputError::PasswordTooShort);
-        }
-        if password.len() > 128 {
-            return Err(InputError::PasswordTooLong);
-        }
-        if !password.chars().any(|c| c.is_uppercase()) {
-            return Err(InputError::PasswordNoUppercase);
-        }
-        if !password.chars().any(|c| c.is_lowercase()) {
-            return Err(InputError::PasswordNoLowercase);
-        }
-        if !password.chars().any(|c| c.is_ascii_digit()) {
-            return Err(InputError::PasswordNoDigit);
-        }
-        Ok((email.as_str().to_string(), password.to_string(), name))
-    })?;
+        let redirect = get_field(fields, "redirect").unwrap_or("").to_string();
+        Ok(SignupForm { email: email.as_str().to_string(), password, name, redirect })
+    }
+}
 
+async fn auth_signup(s: &AuthState, form: &SignupForm, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
     let req = rust_auth::CreateUserRequest {
-        email: email_str,
-        password,
-        name: user_name,
+        email: form.email.clone(),
+        password: form.password.clone(),
+        name: form.name.clone(),
     };
-    let redirect = extract_redirect(body);
-    let redirect = if redirect.is_empty() {
+    let redirect = if form.redirect.is_empty() {
         referer.and_then(|r| r.split('?').next()).unwrap_or("").to_string()
     } else {
-        redirect
+        form.redirect.clone()
     };
     s.auth.signup(req).await.map(move |r| (r, redirect)).map_err(|e| e.to_string())
 }
@@ -204,7 +212,7 @@ pub async fn signup_handler(
     State(s): State<AuthState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-    body: String,
+    ValidatedForm(form): ValidatedForm<SignupForm>,
 ) -> SafeResponse {
     let ip = client_ip(&headers);
     if !rate_limiter().check(&ip) {
@@ -214,21 +222,15 @@ pub async fn signup_handler(
         return safe_redirect(&dest, &bp);
     }
     let referer = headers.get("referer").and_then(|v| v.to_str().ok());
-    let redirect = extract_redirect(&body);
-    let redirect = if redirect.is_empty() {
-        referer.and_then(|r| r.split('?').next()).unwrap_or("").to_string()
-    } else {
-        redirect
-    };
-    match auth_signup(&s, &body, referer).await {
-        Ok((r, _)) => auth_response(Ok((r, redirect)), &bp),
+    match auth_signup(&s, &form, referer).await {
+        Ok((r, redirect)) => auth_response(Ok((r, redirect)), &bp),
         Err(e) => {
-            debug_warn!(target: "auth::signup", "signup eșuat: {} redirect={}", e, redirect);
+            debug_warn!(target: "auth::signup", "signup eșuat: {} redirect={}", e, form.redirect);
             let err_enc = url_encode(&e);
-            let dest = if redirect.is_empty() {
+            let dest = if form.redirect.is_empty() {
                 format!("{}/signup?error={}", bp, err_enc)
             } else {
-                format!("{}/signup?error={}&redirect={}", bp, err_enc, redirect)
+                format!("{}/signup?error={}&redirect={}", bp, err_enc, form.redirect)
             };
             safe_redirect(&dest, &bp)
         }
