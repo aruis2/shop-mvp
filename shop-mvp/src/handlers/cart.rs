@@ -16,20 +16,7 @@ use crate::url_encode::url_encode;
 use crate::debug_warn;
 
 fn redirect_back(headers: &axum::http::HeaderMap, fallback: &str, error: Option<&str>) -> SafeResponse {
-    let base = headers.get("referer")
-        .and_then(|v| v.to_str().ok())
-        .map(|r| r.split('?').next().unwrap_or(r))
-        .unwrap_or(fallback);
-    if let Some(msg) = error {
-        debug_warn!(target: "cart", "redirect_back cu eroare: {} -> {}", msg, base);
-    }
-    // 🔒 OutputFactory: validează URL-ul redirect (previne open redirect)
-    let safe_base = OutputFactory::safe_redirect_url(&base, "/")
-        .unwrap_or_else(|| fallback.to_string());
-    match error {
-        Some(msg) => SafeResponse::redirect(format!("{}?error={}", safe_base, url_encode(msg))),
-        None => SafeResponse::redirect(safe_base),
-    }
+    crate::boundary::redirect_back(headers, fallback, error)
 }
 
 #[derive(Deserialize)]

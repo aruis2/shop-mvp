@@ -22,6 +22,7 @@ use rust_marketplace_orders::PgOrderRepo;
 use rust_payment::{PaymentRepo, StripePayment, MockPayment};
 
 mod url_encode;
+mod http;
 
 mod boundary;
 mod cookie;

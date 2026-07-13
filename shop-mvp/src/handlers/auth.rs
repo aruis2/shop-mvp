@@ -23,14 +23,7 @@ fn rate_limiter() -> &'static crate::ratelimit::RateLimiter {
     RL.get_or_init(|| crate::ratelimit::RateLimiter::new(10, 60))
 }
 
-/// Extrage IP-ul clientului din headere (X-Forwarded-For) sau din conexiune
-fn client_ip(headers: &axum::http::HeaderMap) -> String {
-    headers.get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
-}
+
 
 #[derive(Deserialize)]
 pub struct AuthPageQuery {
@@ -96,23 +89,6 @@ pub async fn signup_page(
     if let Some(ref r) = redirect { data["redirect"] = serde_json::json!(r); }
     if let Some(ref e) = q.error { data["error"] = serde_json::json!(e); }
     render_safe_json(&s.renderer, "auth/signup.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
-}
-
-/// Parsează body-ul ca JSON sau form-urlencoded
-/// și validează prin InputFactory
-fn parse_body_and_validate<T>(
-    body: &str,
-    f: impl FnOnce(&[crate::types::parser::FormField]) -> Result<T, InputError>,
-) -> Result<T, String> {
-    parse_any_into(body, f).map_err(|e| e.to_string())
-}
-
-/// Extrage parametrul `redirect=` din raw body (form-urlencoded)
-fn extract_redirect(body: &str) -> String {
-    let fields = crate::types::parser::parse_form(body);
-    crate::types::parser::get_field(&fields, "redirect")
-        .map(|s| s.to_string())
-        .unwrap_or_default()
 }
 
 #[derive(Deserialize)]
@@ -219,7 +195,7 @@ pub async fn signup_handler(
         debug_warn!(target: "auth::ratelimit", "Rate limit signup de la IP={}", ip);
         let err_enc = url_encode("Prea multe încercări. Încearcă din nou peste 1 minut.");
         let dest = format!("{}/signup?error={}", bp, err_enc);
-        return safe_redirect(&dest, &bp);
+        return safe_redirect(&dest);
     }
     let referer = headers.get("referer").and_then(|v| v.to_str().ok());
     match auth_signup(&s, &form, referer).await {
@@ -232,28 +208,14 @@ pub async fn signup_handler(
             } else {
                 format!("{}/signup?error={}&redirect={}", bp, err_enc, form.redirect)
             };
-            safe_redirect(&dest, &bp)
+            safe_redirect(&dest)
         }
     }
 }
 
-fn extract_path_from_url(url: &str) -> String {
-    // Dacă e URL complet (http://...), extrage doar calea
-    if let Some(s) = url.find("://") {
-        if let Some(p) = url[s + 3..].find('/') {
-            let path = &url[s + 3 + p..];
-            return path.to_string(); // păstrăm query params
-        }
-    }
-    // Dacă e deja cale (/cart, /search?q=s22), returneaz-o direct
-    if url.starts_with('/') {
-        return url.to_string();
-    }
-    "/".to_string()
-}
 
-/// Pagină HTML simplă cu redirect via meta refresh + JS + ștergere localStorage
-/// Extrage user-ul din cookie (fără a face redirect). Returnează None dacă nu e autentificat.
+
+/// Extrage user-ul din cookie (fără a face redirect).
 pub async fn current_user(
     headers: &axum::http::HeaderMap,
     auth: &dyn rust_auth::AuthRepo,
@@ -300,22 +262,7 @@ pub async fn inject_user_ctx_json(
     }
 }
 
-/// 🔒 Redirect sigur — URL-ul trece prin OutputFactory::safe_redirect_url
-fn safe_redirect(dest: &str, _bp: &str) -> SafeResponse {
-    let safe = OutputFactory::safe_redirect_url(dest, "/")
-        .unwrap_or_else(|| "/".to_string());
-    SafeResponse::redirect(safe)
-}
 
-fn redirect_html(url: &str) -> SafeResponse {
-    // 🔒 OutputFactory: validează URL-ul, previne XSS (javascript:) și open redirect
-    // 🔒 Fără inline script (blocat de CSP script-src 'self'). Meta refresh e 100% HTML, nu JS.
-    let safe_url = OutputFactory::safe_redirect_url(url, "/")
-        .unwrap_or_else(|| "/".to_string());
-    SafeResponse::html(format!(
-        r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url={safe_url}"></head><body><p><a href="{safe_url}">Continuă</a></p></body></html>"#
-    ))
-}
 
 /// GET /me — pagină HTML cu profilul utilizatorului
 pub async fn me_handler(
@@ -330,7 +277,7 @@ pub async fn me_handler(
         Some(t) => t.to_string(),
         None => {
             let dest = format!("{}/login?error={}", bp, url_encode("Trebuie să fii autentificat"));
-            return safe_redirect(&dest, &bp);
+            return safe_redirect(&dest);
         }
     };
 
@@ -338,7 +285,7 @@ pub async fn me_handler(
         Ok(u) => u,
         Err(_) => {
             let dest = format!("{}/login?error={}", bp, url_encode("Token invalid"));
-            return safe_redirect(&dest, &bp);
+            return safe_redirect(&dest);
         }
     };
 
@@ -352,13 +299,7 @@ pub async fn me_handler(
     render_safe_json(&s.renderer, "auth/me.html", &data, &bp, &headers, &*s.auth as &dyn rust_auth::AuthRepo).await
 }
 
-/// Extrage calea dintr-un Referer URL: http://host/path → Some("/path")
-fn extract_path_from_referer(referer: &str) -> Option<String> {
-    let path = referer.split("://").nth(1)?.split('/').skip(1).collect::<Vec<_>>().join("/");
-    let path = format!("/{}", path);
-    // Păstrăm query params (ex: /search?q=s22 → /search?q=s22)
-    if path == "/" || path.starts_with("/?") { None } else { Some(path) }
-}
+
 
 pub async fn logout_handler(
     headers: axum::http::HeaderMap,
@@ -397,14 +338,14 @@ pub async fn login_handler(
         debug_warn!(target: "auth::ratelimit", "Rate limit login de la IP={}", ip);
         let err_enc = url_encode("Prea multe încercări. Încearcă din nou peste 1 minut.");
         let dest = format!("{}/login?error={}", bp, err_enc);
-        return safe_redirect(&dest, &bp);
+        return safe_redirect(&dest);
     }
     
     // 🔒 ASVS L2: Account lockout — verifică dacă emailul de la acest IP e blocat
     if let Err(msg) = crate::check_lockout(&ip, &form.email) {
         debug_warn!(target: "auth::lockout", "Cont blocat: {} de la IP={}", form.email, ip);
         let dest = format!("{}/login?error={}", bp, url_encode(msg));
-        return safe_redirect(&dest, &bp);
+        return safe_redirect(&dest);
     }
     
     let referer = headers.get("referer").and_then(|v| v.to_str().ok());
@@ -424,7 +365,7 @@ pub async fn login_handler(
             } else {
                 format!("{}/login?error={}&redirect={}", bp, err_enc, form.redirect)
             };
-            safe_redirect(&dest, &bp)
+            safe_redirect(&dest)
         }
     }
 }
@@ -477,7 +418,7 @@ pub async fn delete_account_handler(
         Some(t) => t.to_string(),
         None => {
             let dest = format!("{}/login?error=Autentifică-te+întâi", bp);
-            return safe_redirect(&dest, &bp);
+            return safe_redirect(&dest);
         }
     };
 
@@ -486,18 +427,18 @@ pub async fn delete_account_handler(
             match s.auth.delete_user(user.id).await {
                 Ok(_) => {
                     let dest = format!("{}/?success=Cont+șters", bp);
-                    safe_redirect(&dest, &bp).without_cookie("token")
+                    safe_redirect(&dest).without_cookie("token")
                 }
                 Err(e) => {
                     let err_msg = e.to_string().replace(' ', "+");
                     let dest = format!("{}/me?error=Eroare+la+ștergere:+{}", bp, err_msg);
-                    safe_redirect(&dest, &bp)
+                    safe_redirect(&dest)
                 }
             }
         }
         Err(_) => {
             let dest = format!("{}/login?error=Token+invalid", bp);
-            safe_redirect(&dest, &bp)
+            safe_redirect(&dest)
         },
     }
 }

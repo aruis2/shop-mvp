@@ -124,22 +124,22 @@ pub struct CheckoutForm {
 impl ValidateForm for CheckoutForm {
     fn validate(fields: &[FormField], headers: &HeaderMap) -> Result<Self, SafeResponse> {
         let raw = get_field(fields, "session_id")
-            .map_err(|_| redirect_back(headers, "/checkout", "Session ID lipsă"))?;
+            .map_err(|_| redirect_back(headers, "/checkout", Some("Session ID lipsă")))?;
         let is_private = raw.starts_with("private_");
         let clean = if is_private { &raw[8..] } else { raw };
         let session_id = InputFactory::parse_session_id(clean)
-            .map_err(|_| redirect_back(headers, "/checkout", "Session ID invalid"))?;
+            .map_err(|_| redirect_back(headers, "/checkout", Some("Session ID invalid")))?;
         let guest_email = get_field(fields, "guest_email").ok()
             .and_then(|s| if s.is_empty() { None } else { Some(s.to_string()) });
         let shipping_name = InputFactory::parse_name(
-            get_field(fields, "shipping_name").map_err(|_| redirect_back(headers, "/checkout", "Nume lipsă"))?
-        ).map_err(|_| redirect_back(headers, "/checkout", "Nume invalid"))?;
+            get_field(fields, "shipping_name").map_err(|_| redirect_back(headers, "/checkout", Some("Nume lipsă")))?
+        ).map_err(|_| redirect_back(headers, "/checkout", Some("Nume invalid")))?;
         let shipping_address = InputFactory::parse_address(
-            get_field(fields, "shipping_address").map_err(|_| redirect_back(headers, "/checkout", "Adresă lipsă"))?
-        ).map_err(|_| redirect_back(headers, "/checkout", "Adresă invalidă"))?;
+            get_field(fields, "shipping_address").map_err(|_| redirect_back(headers, "/checkout", Some("Adresă lipsă")))?
+        ).map_err(|_| redirect_back(headers, "/checkout", Some("Adresă invalidă")))?;
         let shipping_phone = InputFactory::parse_phone(
-            get_field(fields, "shipping_phone").map_err(|_| redirect_back(headers, "/checkout", "Telefon lipsă"))?
-        ).map_err(|_| redirect_back(headers, "/checkout", "Telefon invalid"))?;
+            get_field(fields, "shipping_phone").map_err(|_| redirect_back(headers, "/checkout", Some("Telefon lipsă")))?
+        ).map_err(|_| redirect_back(headers, "/checkout", Some("Telefon invalid")))?;
         let notes = get_field(fields, "notes").ok()
             .and_then(|s| if s.is_empty() { None } else {
                 InputFactory::parse_notes(s).ok().map(|n| n.to_string())
