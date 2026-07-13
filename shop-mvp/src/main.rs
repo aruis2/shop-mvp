@@ -23,6 +23,7 @@ use rust_payment::{PaymentRepo, StripePayment, MockPayment};
 
 mod url_encode;
 
+mod boundary;
 mod cookie;
 mod debug;
 mod front_controller;
@@ -172,7 +173,7 @@ async fn main() -> anyhow::Result<()> {
 
     // --- Master state (doar bootstrap, NU expus handlerelor) ---
     // Construiește inner_router (rutele reale) mai întâi
-    let inner_router = front_controller::build_inner_router(
+    let inner_router = boundary::build_inner_router(
         &products, &auth, &cart, &orders, &payment,
         &renderer, &site_url, max_qty, &pool,
     );
@@ -185,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 🚦 Front Controller: UNICUL punct de intrare/ieșire
     // TrustBoundary (input) + Security Headers (output) + Single Fallback
-    let app = front_controller::build_outer_router(state);
+    let app = boundary::build_outer_router(state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".into());
     let addr = format!("0.0.0.0:{port}");

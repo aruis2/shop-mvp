@@ -14,8 +14,7 @@ use tracing;
 use crate::state::ProductState;
 use crate::render::{RenderService, DetectBasePath};
 use crate::handlers::auth;
-use crate::types::InputFactory;
-use crate::types::QueryValidator;
+use crate::boundary::*;
 
 pub const PRODUCTS_PER_PAGE: i64 = 24;
 

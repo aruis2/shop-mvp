@@ -12,12 +12,8 @@ use serde::Deserialize;
 use crate::state::CartState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_or_err_json;
-use crate::types::logic::LogicFactory;
-use crate::types::output::OutputFactory;
+use crate::boundary::*;
 use crate::types::parser::{parse_any_into, get_field};
-use crate::types::error::InputError;
-use crate::types::InputFactory;
-use crate::types::QueryValidator;
 use crate::url_encode::url_encode;
 use crate::debug_warn;
 
