@@ -1831,7 +1831,6 @@ dependencies = [
  "rust-marketplace-categories",
  "rust-marketplace-orders",
  "rust-marketplace-products",
- "rust-path-prefix",
  "rust-payment",
  "rust-ratelimit",
  "rust-slug",

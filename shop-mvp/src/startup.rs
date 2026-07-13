@@ -253,6 +253,8 @@ pub async fn build_and_serve(lego: LegoModules) -> anyhow::Result<()> {
         "GET/POST /admin/product/new", "GET/POST /admin/product/{slug}/edit",
         "POST /admin/product/{slug}/delete",
         "GET /admin/logs", "POST /admin/migrate-orders",
+        "POST /account/delete", "GET /account/export",
+        "GET /privacy", "GET /security",
         "GET /health",
         "GET /.well-known/security.txt",
     ] {

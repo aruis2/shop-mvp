@@ -54,7 +54,6 @@ rust-marketplace-orders  = { path = "../libs/rust-marketplace-orders" }
 rust-payment            = { path = "../libs/rust-payment" }
 rust-url-normalizer     = { path = "../libs/rust-url-normalizer" }
 rust-slug                = { path = "../libs/rust-slug" }
-rust-path-prefix         = { path = "../libs/rust-path-prefix" }
 rust-trust-boundary     = { path = "../libs/rust-trust-boundary" }
 rust-ratelimit          = { path = "../libs/rust-ratelimit" }
 rust-logic              = { path = "../libs/rust-logic" }
