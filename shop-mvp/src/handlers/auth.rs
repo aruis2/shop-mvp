@@ -4,6 +4,7 @@
 
 use axum::{
     extract::{Query, State},
+    http::HeaderMap,
 };
 use serde::Deserialize;
 
@@ -164,26 +165,15 @@ async fn auth_signup(s: &AuthState, body: &str, referer: Option<&str>) -> Result
     s.auth.signup(req).await.map(move |r| (r, redirect)).map_err(|e| e.to_string())
 }
 
-async fn auth_login(s: &AuthState, body: &str, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
-    // 🏭 InputFactory: validează email + password
-    let (email_str, password) = parse_body_and_validate(body, |fields| {
-        let email = InputFactory::parse_email(get_field(fields, "email")?)?;
-        let password = get_field(fields, "password")?;
-        if password.is_empty() {
-            return Err(InputError::MissingField("password".to_string()));
-        }
-        Ok((email.as_str().to_string(), password.to_string()))
-    })?;
-
+async fn auth_login(s: &AuthState, form: &LoginForm, referer: Option<&str>) -> Result<(rust_auth::LoginResponse, String), String> {
     let req = rust_auth::LoginRequest {
-        email: email_str,
-        password,
+        email: form.email.clone(),
+        password: form.password.clone(),
     };
-    let redirect = extract_redirect(body);
-    let redirect = if redirect.is_empty() {
+    let redirect = if form.redirect.is_empty() {
         referer.and_then(|r| r.split('?').next()).unwrap_or("").to_string()
     } else {
-        redirect
+        form.redirect.clone()
     };
     s.auth.login(req).await.map(move |r| (r, redirect)).map_err(|e| e.to_string())
 }
@@ -398,7 +388,7 @@ pub async fn login_handler(
     State(s): State<AuthState>,
     DetectBasePath(bp): DetectBasePath,
     headers: axum::http::HeaderMap,
-    body: String,
+    ValidatedForm(form): ValidatedForm<LoginForm>,
 ) -> SafeResponse {
     let ip = client_ip(&headers);
     if !rate_limiter().check(&ip) {
@@ -409,39 +399,28 @@ pub async fn login_handler(
     }
     
     // 🔒 ASVS L2: Account lockout — verifică dacă emailul de la acest IP e blocat
-    let email = extract_email(&body);
-    if let Some(email) = &email {
-        if let Err(msg) = crate::check_lockout(&ip, email) {
-            debug_warn!(target: "auth::lockout", "Cont blocat: {} de la IP={}", email, ip);
-            let dest = format!("{}/login?error={}", bp, url_encode(msg));
-            return safe_redirect(&dest, &bp);
-        }
+    if let Err(msg) = crate::check_lockout(&ip, &form.email) {
+        debug_warn!(target: "auth::lockout", "Cont blocat: {} de la IP={}", form.email, ip);
+        let dest = format!("{}/login?error={}", bp, url_encode(msg));
+        return safe_redirect(&dest, &bp);
     }
     
     let referer = headers.get("referer").and_then(|v| v.to_str().ok());
-    let redirect = extract_redirect(&body);
-    let redirect = if redirect.is_empty() {
-        referer.and_then(|r| r.split('?').next()).unwrap_or("").to_string()
-    } else {
-        redirect
-    };
-    match auth_login(&s, &body, referer).await {
-        Ok((r, _)) => {
+    match auth_login(&s, &form, referer).await {
+        Ok((r, redirect)) => {
             // Login reușit: resetează lockout per IP:email
-            if let Some(email) = &email { crate::clear_lockout(&ip, email); }
-            // NOTĂ: Coșul anonim NU se unește cu utilizatorul la login.
-            // Itemele adăugate cât ești logat au deja user_id (vezi cart_add).
+            crate::clear_lockout(&ip, &form.email);
             auth_response(Ok((r, redirect)), &bp)
         }
         Err(e) => {
             // Login eșuat: înregistrează încercarea per IP:email
-            if let Some(email) = &email { crate::record_failed_attempt(&ip, email); }
-            debug_warn!(target: "auth::login", "login eșuat: {} redirect={}", e, redirect);
+            crate::record_failed_attempt(&ip, &form.email);
+            debug_warn!(target: "auth::login", "login eșuat: {} redirect={}", e, form.redirect);
             let err_enc = url_encode(&e);
-            let dest = if redirect.is_empty() {
+            let dest = if form.redirect.is_empty() {
                 format!("{}/login?error={}", bp, err_enc)
             } else {
-                format!("{}/login?error={}&redirect={}", bp, err_enc, redirect)
+                format!("{}/login?error={}&redirect={}", bp, err_enc, form.redirect)
             };
             safe_redirect(&dest, &bp)
         }
@@ -449,11 +428,32 @@ pub async fn login_handler(
 }
 
 /// Extrage email-ul din body-ul formularului
-fn extract_email(body: &str) -> Option<String> {
-    if let Ok(form) = serde_urlencoded::from_str::<std::collections::HashMap<String, String>>(body) {
-        form.get("email").cloned()
-    } else {
-        None
+// =============================================================================
+// 📋 LoginForm — validat AUTOMAT de ValidatedForm (V8)
+// =============================================================================
+
+/// Formular login. Cîmpurile sunt validate prin InputFactory în ValidateForm.
+pub struct LoginForm {
+    pub email: String,
+    pub password: String,
+    pub redirect: String,
+}
+
+impl ValidateForm for LoginForm {
+    fn validate(fields: &[FormField], _headers: &HeaderMap) -> Result<Self, SafeResponse> {
+        let email = InputFactory::parse_email(
+            get_field(fields, "email").map_err(|_| SafeResponse::bad_request("Email lipsă"))?
+        ).map_err(|e| SafeResponse::bad_request(e.to_string()))?;
+        
+        let password = get_field(fields, "password")
+            .map_err(|_| SafeResponse::bad_request("Parola lipsește"))?
+            .to_string();
+        if password.is_empty() {
+            return Err(SafeResponse::bad_request("Parola lipsește"));
+        }
+        
+        let redirect = get_field(fields, "redirect").unwrap_or("").to_string();
+        Ok(LoginForm { email: email.as_str().to_string(), password, redirect })
     }
 }
 

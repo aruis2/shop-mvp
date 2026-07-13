@@ -17,11 +17,21 @@
 use axum::{
     body::Bytes,
     extract::{FromRequest, Request},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 
 use crate::types::parser::{parse_form, FormField};
 use crate::boundary::SafeResponse;
+use crate::url_encode::url_encode;
+
+/// Creează un redirect back la referer cu mesaj de eroare (PRG pattern).
+pub fn redirect_back(headers: &HeaderMap, fallback: &str, error: &str) -> SafeResponse {
+    let base = headers.get("referer")
+        .and_then(|v| v.to_str().ok())
+        .map(|r| r.split('?').next().unwrap_or(r))
+        .unwrap_or(fallback);
+    SafeResponse::redirect(format!("{}?error={}", base, url_encode(error)))
+}
 
 /// Un formular DEJA validat. Nu poți construi asta fără să treci prin ValidateForm.
 /// Asta e SINGURUL mod prin care handler-ele primesc date de la utilizator.
@@ -32,14 +42,13 @@ pub struct ValidatedForm<T>(pub T);
 /// `validate` primește cîmpurile parșate + headerele HTTP (pentru redirect-uri).
 pub trait ValidateForm: Sized {
     /// Validează cîmpurile și returnează formularul.
-    /// Pentru erori, returnează un SafeResponse (redirect cu mesaj sau bad_request).
-    fn validate(fields: &[FormField]) -> Result<Self, &'static str>;
+    /// `headers` — pentru redirect-uri (PRG pattern) care au nevoie de referer.
+    /// Pentru erori, returnează un SafeResponse (redirect sau bad_request).
+    fn validate(fields: &[FormField], headers: &HeaderMap) -> Result<Self, SafeResponse>;
 }
 
 /// Implementare Axum FromRequest — face validarea AUTOMAT la fiecare request.
-/// Dacă validarea eșuează, returnează SafeResponse::bad_request.
-/// Handlerele care vor redirect în loc de 400 trebuie să facă validarea manual
-/// (vezi cart_add, signup_handler — au nevoie de headere pentru redirect_back).
+/// Dacă validarea eșuează, returnează SafeResponse (poate fi redirect sau 400).
 impl<T, S> FromRequest<S> for ValidatedForm<T>
 where
     T: ValidateForm,
@@ -48,6 +57,8 @@ where
     type Rejection = SafeResponse;
 
     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
+        let headers = req.headers().clone();
+        
         let body = Bytes::from_request(req, _state).await
             .map_err(|_| SafeResponse::bad_request("Body error"))?;
         
@@ -56,9 +67,7 @@ where
         
         let fields = parse_form(&body_str);
         
-        match T::validate(&fields) {
-            Ok(form) => Ok(ValidatedForm(form)),
-            Err(msg) => Err(SafeResponse::bad_request(msg)),
-        }
+        T::validate(&fields, &headers)
+            .map(ValidatedForm)
     }
 }

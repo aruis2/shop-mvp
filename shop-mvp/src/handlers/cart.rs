@@ -4,6 +4,7 @@
 
 use axum::{
     extract::{Query, State},
+    http::HeaderMap,
 };
 use serde::Deserialize;
 
@@ -11,7 +12,6 @@ use crate::state::CartState;
 use crate::render::DetectBasePath;
 use crate::handlers::products::render_safe_json;
 use crate::boundary::*;
-use crate::types::parser::{parse_any_into, get_field};
 use crate::url_encode::url_encode;
 use crate::debug_warn;
 
@@ -266,11 +266,11 @@ pub struct CartRemoveForm {
 }
 
 impl ValidateForm for CartRemoveForm {
-    fn validate(fields: &[FormField]) -> Result<Self, &'static str> {
+    fn validate(fields: &[FormField], _headers: &HeaderMap) -> Result<Self, SafeResponse> {
         let id_str = get_field(fields, "item_id")
-            .map_err(|_| "Date invalide")?;
+            .map_err(|_| SafeResponse::bad_request("Date invalide"))?;
         let item_id = uuid::Uuid::parse_str(id_str)
-            .map_err(|_| "ID invalid")?;
+            .map_err(|_| SafeResponse::bad_request("ID invalid"))?;
         Ok(CartRemoveForm { item_id })
     }
 }
@@ -303,15 +303,15 @@ pub struct CartUpdateForm {
 }
 
 impl ValidateForm for CartUpdateForm {
-    fn validate(fields: &[FormField]) -> Result<Self, &'static str> {
+    fn validate(fields: &[FormField], _headers: &HeaderMap) -> Result<Self, SafeResponse> {
         let id_str = get_field(fields, "item_id")
-            .map_err(|_| "Date invalide")?;
+            .map_err(|_| SafeResponse::bad_request("Date invalide"))?;
         let item_id = uuid::Uuid::parse_str(id_str)
-            .map_err(|_| "ID invalid")?;
+            .map_err(|_| SafeResponse::bad_request("ID invalid"))?;
         let qty_str = get_field(fields, "qty").unwrap_or("1");
         let qty_val: i32 = qty_str.parse().unwrap_or(1);
         let qty = InputFactory::parse_qty(qty_val)
-            .map_err(|_| "Cantitate invalidă")?;
+            .map_err(|_| SafeResponse::bad_request("Cantitate invalidă"))?;
         Ok(CartUpdateForm { item_id, qty: qty.get() as i32 })
     }
 }
